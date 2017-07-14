@@ -30,5 +30,8 @@ def main():
     args = parser.parse_args(opt_args)
     M.main( args )
 
+if __name__ == '__main__':
+
+    main()
 
 

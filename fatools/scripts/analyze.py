@@ -23,6 +23,9 @@ def init_argparser(parser=None):
     p.add_argument('--fsdb', default=False,
             help = 'directory for filesystem-based database')
 
+    p.add_argument('--file', default=None,
+            help = "Comma-separated FSA filenames (optional)")
+
     ## Commands
 
     p.add_argument('--samplesummary', default=False, action='store_true',
@@ -82,11 +85,19 @@ def main(args):
 
 def do_analyze(args, dbhandler_func = get_dbhandler):
 
-    dbh = dbhandler_func( args )
+    dbh = None
+    file_list = None
+
+    if args.file or args.infile:
+        cverr(4, 'D: opening FSA file(s)')
+        fsa_list = open_fsa(args)
+
+    elif dbh is None:
+        dbh = dbhandler_func( args )
 
 
     if args.samplesummary:
-        do_samplesummary(args, dbh)
+        do_samplesummary(args, dbh, file_list)
     elif args.allelesummary:
         do_allelesummary(args, dbh)
     elif args.binsummary:

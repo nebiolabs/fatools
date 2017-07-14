@@ -3,6 +3,8 @@ from fatools.lib.fautil import algo2 as algo
 from fatools.lib.utils import cout, cerr, cexit
 from fatools.lib import const
 
+from functools import lru_cache
+
 import attr
 import time
 
@@ -47,35 +49,70 @@ class ChannelMixIn(object):
             self.marker = marker
 
 
-    def get_alleles(self):
+    def get_alleles(self):       
         if self.status == const.channelstatus.reseted:
             # create alleles first
             raise RuntimeError('E: channel needs to be scanned first')
         return self.alleles
 
-
-    def scan(self, parameters=None):
+    # ChannelMixIn scan method
+    def scan(self, parameters, ladder=None):
+        
         if self.status != const.channelstatus.reseted:
             return
+        
+        params = parameters.ladder if self.is_ladder() else parameters.nonladder
+        
+        alleles = algo.scan_peaks(self, params)
 
-        alleles = algo.scan_peaks(self,
-                parameters.ladder if self.is_ladder() else parameters.nonladder )
+        if len(alleles)==0: return
+        
+        # determine qscore and mark peak type for alleles
+        algo.preannotate_peaks(self, params)
+        
+        if ladder==None:
+            return
+        
+        # get function for call_peaks        
+        ladders = ladder.alleles
 
+        # check the allele method
+        method = parameters.allelemethod
+        
+        if method == const.allelemethod.leastsquare:
+            func = algo.least_square( ladders, self.fsa.z)
+        elif method == const.allelemethod.cubicspline:
+            func = algo.cubic_spline( ladders )
+        elif method == const.allelemethod.localsouthern:
+            func = algo.local_southern( ladders )
+        else:
+            raise RuntimeError
+        
+        #min_rtime = ladders[1].rtime
+        #max_rtime = ladders[-2].rtime
+        
+        min_rtime = params.min_rtime
+        max_rtime = ladders[-1].rtime
+        print("min/max rtime: ",min_rtime,", ", max_rtime)
+        
+        algo.call_peaks(self, params, func, min_rtime, max_rtime)
+        #algo.bin_peaks(self, params, self.marker)
+        #algo.postannotate_peaks(self, params)
+        
         #import pprint; pprint.pprint(alleles)
 
 
     def preannotate(self, parameters):
         pass
 
-
-    def align(self, parameters=None, anchor_pairs=None):
+    # ChannelMixIn align method
+    def align(self, parameters, anchor_pairs=None):
 
         # sanity checks
         if self.marker.code != 'ladder':
             raise RuntimeError('E: align() must be performed on ladder channel!')
 
-        if parameters:
-            self.scan( parameters )         # in case this channel hasn't been scanned
+        self.scan( parameters )         # in case this channel hasn't been scanned
 
         ladder = self.fsa.panel.get_ladder()
 
@@ -94,18 +131,37 @@ class ChannelMixIn(object):
         fsa.score = result.score
         fsa.duration = time.process_time() - start_time
 
+        # set allele sizes from ladder steps
+        alleles = self.get_alleles()
+        alleles.sort(key = lambda x: x.rtime)
+
+        ladder_sizes = ladder['sizes']
+        ladder_sizes.sort()
+
+        if (len(alleles) != len(ladder_sizes)):
+            cerr("alleles not same length as ladder!")
+            import sys
+            sys.exit() # exit for now because this code can't handle the wrong number of peaks yet
+
+        for allele, ladder_size in zip(alleles, ladder_sizes):
+            allele.size = ladder_size
+            
         #import pprint; pprint.pprint(dpresult.sized_peaks)
         #print(fsa.z)
         cout('O: Score %3.2f | %5.2f | %d/%d | %s | %5.1f | %s' %
-            (fsa.score, fsa.rss, fsa.nladder, len(ladder['sizes']), result.method,
-            fsa.duration, fsa.filename) )
+            (fsa.score, fsa.rss, fsa.nladder, len(ladder['sizes']),
+             result.method, fsa.duration, fsa.filename) )
 
 
+    # ChannelMixIn call method
+    def call(self, ladder, parameters=None):
 
-    def call(self, parameters=None):
-        pass
-
-
+        # skip if ladder
+        if self.marker.code == 'ladder':
+            pass
+        
+        if parameters:
+            self.scan( parameters, ladder)  # in case this channel hasn't been scanned
 
 
 
@@ -165,14 +221,16 @@ class FSAMixIn(object):
     def align(self, parameters=None):
 
         c = self.get_ladder_channel()
-
         c.align( parameters )
-        alleles = c.get_alleles()
 
-
+    # FSAMixIn call method
     def call(self, parameters):
-        pass
 
+        ladder = self.get_ladder_channel()
+        
+        for c in self.channels:
+            if c.marker.code != 'ladder':
+                c.scan( parameters, ladder)
 
     def get_ladder_channel(self):
 
@@ -231,6 +289,12 @@ class MarkerMixIn(object):
         marker = cls()
         marker.update(d)
         return marker
+
+    @lru_cache(maxsize=32)
+    def get_sortedbins(self, batch):
+        # get Bin from this batch
+        bin = self.get_bin(batch)
+        return bin.sortedbins
 
 
 class PanelMixIn(object):

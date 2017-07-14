@@ -3,7 +3,7 @@
 from fatools.lib import params
 from fatools.lib.utils import cerr, cout, cverr, cexit, tokenize, detect_buffer, set_verbosity
 
-import argparse, yaml, csv, os
+import sys, argparse, yaml, csv, os
 from io import StringIO
 
 
@@ -23,6 +23,8 @@ def init_argparser(parser=None):
     p.add_argument('--infile', default=None,
             help = 'Tab-delimited or CSV manifest file')
 
+    p.add_argument('--outfile', default='-',
+            help = 'output filename')
 
     # command in ascending order
 
@@ -44,8 +46,14 @@ def init_argparser(parser=None):
     p.add_argument('--plot', default=False, action='store_true',
             help = 'plot normalized trace')
 
+    p.add_argument('--ladderplot', default=False, action='store_true',
+            help = 'plot ladder peaks and calibration curve')
+
     p.add_argument('--dendogram', default=False, action='store_true',
             help = 'plot dendograms of ladders and alleles')
+
+    p.add_argument('--listpeaks', default=False, action='store_true',
+            help = 'list all peaks')
 
     # semi-mandatory
 
@@ -78,6 +86,17 @@ def init_argparser(parser=None):
     p.add_argument('--commit', default=False, action='store_true',
             help = 'commit to database')
 
+    ## Override params
+
+    p.add_argument('--ladder_rfu_threshold', default=-1, type=float,
+                   help='ladder rfu threshold')
+
+    p.add_argument('--nonladder_rfu_threshold', default=-1, type=float,
+                   help='nonladder rfu threshold')
+
+    p.add_argument('--allelemethod', default='', type=str,
+                   help='allele method (leastsquare, cubicspline, localsouthern)')
+                   
     return p
 
 
@@ -132,6 +151,12 @@ def do_facmds(args, fsa_list, dbh=None):
     if args.dendogram:
         do_dendogram( args, fsa_list, dbh)
         executed += 1
+    if args.ladderplot:
+        do_ladderplot( args, fsa_list, dbh )
+        executed += 1
+    if args.listpeaks is not False:
+        do_listpeaks( args, fsa_list, dbh )
+        executed += 1
 
     if executed == 0:
         cerr('W: please provide a relevant command')
@@ -145,20 +170,39 @@ def do_clear( args, fsa_list, dbh ):
 
 def do_align( args, fsa_list, dbh ):
 
+    _params = params.Params()
+    if args.ladder_rfu_threshold >= 0:
+        _params.ladder.min_rfu = args.ladder_rfu_threshold
+
     cerr('I: Aligning size standards...')
 
     for (fsa, sample_code) in fsa_list:
         cverr(3, 'D: aligning FSA %s' % fsa.filename)
-        fsa.align(params.Params())
+        fsa.align(_params)
 
 
 def do_call( args, fsa_list, dbh ):
 
     cerr('I: Calling non-ladder peaks...')
 
+    _params = params.Params()
+    if args.nonladder_rfu_threshold >= 0:
+        _params.nonladder.min_rfu = args.nonladder_rfu_threshold
+
+    from fatools.lib.const import allelemethod
+    if args.allelemethod !="":
+        if args.allelemethod=='leastsquare':
+            _params.allelemethod = allelemethod.leastsquare
+        elif args.allelemethod=='cubicspline':
+            _params.allelemethod = allelemethod.cubicspline
+        elif args.allelemethod=='localsouthern':
+            _params.allelemethod = allelemethod.localsouthern
+        else:
+            raise NotImplementedError()
+                   
     for (fsa, sample_code) in fsa_list:
         cverr(3, 'D: calling FSA %s' % fsa.filename)
-        fsa.call(args.marker)
+        fsa.call(_params)
 
 
 def do_plot( args, fsa_list, dbh ):
@@ -173,10 +217,36 @@ def do_plot( args, fsa_list, dbh ):
 
         plt.show()
 
+def do_ladderplot( args, fsa_list, dbh ):
+
+    cerr('I: Creating ladder plot...')
+
+    for (fsa, sample_code) in fsa_list:
+
+        c = fsa.get_ladder_channel()
+
+        # get ladder and times for peaks fit to ladder
+        ladder_sizes = fsa.panel.get_ladder()['sizes']
+        alleles = c.get_alleles()
+        allele_sizes = [allele.rtime for allele in alleles]
+
+        import matplotlib.pyplot as plt
+        plt.plot(allele_sizes, ladder_sizes, 'p', label='peaks matched to ladder steps')
+
+        # plot fit of ladder scan times to base pairs
+        import numpy as  np
+        fit = np.poly1d(c.fsa.z)
+        x = np.arange(allele_sizes[0] - 150, allele_sizes[-1] + 100)  # len(c.data))
+        plt.plot(x, fit(x), label='fitted curve')
+        plt.legend()
+        plt.xlabel("peak scan times")
+        plt.ylabel("# base pairs")
+
+    plt.show()
 
 def do_dendogram( args, fsa_list, dbh ):
 
-    from fatools.lib.fautil import hclustalign
+    from fatools.lib.fautil import hcalign
     from matplotlib import pyplot as plt
 
     for (fsa, sample_code) in fsa_list:
@@ -188,24 +258,48 @@ def do_dendogram( args, fsa_list, dbh ):
         peaks = c.get_alleles()
 
         #initial_pair, P, L = hclustalign.hclust_align(peaks, ladder)
-        P = hclustalign.generate_tree( [ (n.rtime, 0) for n in peaks ] )
-        L = hclustalign.generate_tree( [ (e, 0) for e in ladder['sizes'] ] )
+        P = hcalign.generate_tree( [ (n.rtime, 0) for n in peaks ] )
+        L = hcalign.generate_tree( [ (e, 0) for e in ladder['sizes'] ] )
 
-        clusters = hclustalign.fcluster(L.z, args.cluster or ladder['k'], criterion="maxclust")
+        clusters = hcalign.fcluster(L.z, args.cluster or ladder['k'], criterion="maxclust")
         print(clusters)
 
-        clusters = hclustalign.fcluster(P.z, args.cluster or ladder['k'], criterion="maxclust")
+        clusters = hcalign.fcluster(P.z, args.cluster or ladder['k'], criterion="maxclust")
         print(clusters)
 
         plt.figure()
         plt.subplot(121)
-        hclustalign.dendrogram(L.z, leaf_rotation=90, leaf_font_size=8,
+        hcalign.dendrogram(L.z, leaf_rotation=90, leaf_font_size=8,
                 labels = [ x[0] for x in L.p ])
         plt.subplot(122)
-        hclustalign.dendrogram(P.z, leaf_rotation=90, leaf_font_size=8,
+        hcalign.dendrogram(P.z, leaf_rotation=90, leaf_font_size=8,
                 labels = [ x[0] for x in P.p ])
         plt.show()
 
+
+def do_listpeaks( args, fsa_list, dbh ):
+
+
+    if args.outfile != '-':
+        out_stream = open(args.outfile, 'w')
+    else:
+        out_stream = sys.stdout
+
+    out_stream.write('SAMPLE\tFILENAME\tDYE  \tRTIME\tHEIGHT\tSIZE\tSCORE\n')
+
+    for (fsa, sample_code) in fsa_list:
+        cverr(3, 'D: calling FSA %s' % fsa.filename)
+
+        for channel in fsa.channels:
+            if channel.is_ladder():
+                continue
+
+            cout('Marker => %s | %s [%d]' % (channel.marker.code, channel.dye,
+                    len(channel.alleles)))
+            for p in channel.alleles:
+                out_stream.write('%6s\t%8s\t%s\t%d\t%d\t%5.3f\t%3.2f\n' %
+                    (sample_code, fsa.filename, channel.dye, p.rtime, p.height, p.size, p.qscore)
+                )
 
 def open_fsa( args ):
     """ open FSA file(s) and prepare fsa instances
@@ -323,4 +417,3 @@ def get_fsa_list( args, dbh ):
 
     cerr('I: number of assays to be processed: %d' % len(assay_list))
     return fsa_list
-

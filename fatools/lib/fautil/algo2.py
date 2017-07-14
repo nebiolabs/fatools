@@ -7,6 +7,7 @@ from fatools.lib.fautil.hcalign import align_hc
 from fatools.lib.fautil.gmalign import align_gm, align_sh, align_de
 from fatools.lib.fautil.pmalign import align_pm
 
+from sortedcontainers import SortedListWithKey
 
 from scipy import signal, ndimage
 from scipy.optimize import curve_fit
@@ -65,10 +66,8 @@ class Channel(object):
 
         result = align_peaks(self, params.ladder, ladders, qcfunc)
 
-
-
-
-
+        self.z = result.z
+        
 def scan_peaks(channel, params, offset=0):
     """
     """
@@ -104,6 +103,148 @@ def scan_peaks(channel, params, offset=0):
     channel.status = const.channelstatus.scanned
     return alleles
 
+def preannotate_peaks(channel, params):
+    
+    """
+    pre-annotate peaks as peak-scanned / peak-broad / peak-stutter/ peak-overlap
+    based on criteria defined in params
+    """
+
+    # peak_1 is overlap of peak_2 if
+    #   brtime2 < ertime1 and ertime1 < ertime2
+    #   and height1 at rtime1 is a_fraction of height2 at rtime1 and
+    #   height1 at rtime2 is a_fraction of height2 at rtime2.
+
+    # peak is broad if beta > beta_broad_threshold
+
+    channel_peaks = [ (list(channel.alleles), np.median(channel.data)) ]
+
+    # reset all peak type, score the peaks and set the peak type to peak-noise,
+    # peak-broad
+
+    # collect beta * theta first, and used beta * theta as descriptor for noise
+    # also if height at either brtime or ertime is higher than 50% at rtime, it is
+    # likely a noise
+
+    for (peaks, med_baseline) in channel_peaks:
+
+        if len(peaks) == 0: continue
+
+        beta_theta = sorted([ p.beta * p.theta for p in peaks ])
+        sampled_beta_theta = beta_theta[2:len(beta_theta)-2]
+        if len(sampled_beta_theta) == 0: sampled_beta_theta = beta_theta
+        avg_beta_theta = sum(sampled_beta_theta) / len(sampled_beta_theta)
+
+
+        for p in peaks:
+            
+            p.type = const.peaktype.scanned
+            p.size = -1
+            p.bin = -1
+
+            peak_beta_theta = p.beta * p.theta
+            score = 1.0
+
+            # extreme noise
+
+            if p.height < 2 * med_baseline:
+                p.qscore = 0.25
+                p.type = const.peaktype.noise
+                continue
+
+            if p.wrtime < 6 or (p.wrtime < 10 and peak_beta_theta < 0.275 * avg_beta_theta):
+                p.qscore = 0.25
+                p.type = const.peaktype.noise
+                continue
+
+            # moderately noise
+
+            if peak_beta_theta < 0.33 * avg_beta_theta:
+                if (    p.channel.data[p.brtime] > 0.5 * p.height or
+                        p.channel.data[p.ertime] > 0.5 * p.height ):
+                    p.qscore = 0.25
+                    p.type = const.peaktype.noise
+                    continue
+                score -= 0.15
+
+            score = 1.0
+            if p.beta > params.max_beta:
+                p.type = const.peaktype.broad
+                score -= 0.20
+            elif p.beta < 5:
+                score -= 0.20
+
+            # check theta
+            if p.theta < 4:
+                # perhaps an artifact
+                score -= 0.20
+
+            # penalty by height
+            if p.height < 75:
+                # decrease the score
+                score -= 0.1
+            if p.height < 50:
+                # decrease even further
+                score -= 0.1
+
+            # penalty by symmetrics
+            if not ( -1.32 < p.srtime < 1.32 ):
+                score -= 0.1
+
+            p.qscore = score
+            if p.qscore < 0.5 and p.type == const.peaktype.scanned:
+                p.type = const.peaktype.noise
+
+            if p.qscore < 0:
+                p.qscore = 0.0  # reset to zero
+
+
+    # checking for stutter peaks based on minimum rtime & rfu
+
+    for (peaks, med_baseline) in channel_peaks:
+        alleles = sorted( [ p for p in peaks ],
+                        key = lambda x: x.rtime )
+
+        for idx in range( len(alleles) ):
+            allele = alleles[idx]            
+            if idx > 0:
+                allele_0 = alleles[idx-1]
+                if allele.rtime - allele_0.rtime < params.stutter_rtime_threshold:
+                    if allele_0.height * params.stutter_height_threshold > allele.height:
+                        allele.type = const.peaktype.stutter
+                        allele.qscore -= 0.2
+            if idx < len(alleles) - 1:
+                allele_1 = alleles[idx+1]
+                if allele_1.rtime - allele.rtime < params.stutter_rtime_threshold:
+                    if allele_1.height * params.stutter_height_threshold > allele.height:
+                        allele.type = const.peaktype.stutter
+                        allele.qscore -= 0.2
+
+def call_peaks( channel, params, func, min_rtime, max_rtime ):
+    """
+    call (determine size) each of peaks with type peak-scanned, and annotate as either
+    peak-called or peak-unassigned
+    """
+
+    print("alleles in channel ",channel.dye)
+    
+    for allele in channel.alleles:
+
+        if not min_rtime < allele.rtime < max_rtime:
+            if allele.type == const.peaktype.scanned:
+                allele.type = const.peaktype.unassigned
+            print("allele not called... outside range!")
+            continue
+        size, deviation, qcall, method = func(allele.rtime)
+        allele.size = size
+        allele.bin = round(size)
+        allele.deviation = deviation
+        allele.qcall = qcall
+        if allele.type == const.peaktype.scanned:
+            allele.type = const.peaktype.called
+        allele.method = const.binningmethod.notavailable
+    
+        print(allele)
 
 def align_peaks(channel, params, ladder, anchor_pairs=None):
     """
@@ -116,7 +257,6 @@ def align_peaks(channel, params, ladder, anchor_pairs=None):
     for p in channel.get_alleles():
         p.size = -1
         p.status = const.peaktype.scanned
-        print(p)
 
     #anchor_pairs = pairs
 
@@ -173,7 +313,7 @@ def find_raw_peaks(data, params, offset, expected_peak_number=0):
     params.min_rfu
     params.max_peak_number
     """
-    print("expected:", expected_peak_number)
+    #print("expected:", expected_peak_number)
     # cut and pad data to overcome peaks at the end of array
     obs_data = np.append(data[offset:], [0,0,0])
     if False: #expected_peak_number:
@@ -380,16 +520,16 @@ def filter_for_artifact(peaks, params, expected_peak_number = 0):
 
     else:
         min_theta = 0
-        min_omega = 0
+        min_omega = params.min_omega
         min_theta_omega = 0
         min_rfu = 2
+        q_omega = lambda x: x.omega >= min_omega
 
 
     # filter for too sharp/thin peaks
     filtered_peaks = []
     for p in peaks:
-        #filtered_peaks.append(p); continue
-        print(p)
+        #filtered_peaks.append(p); continue\
 
         if len(filtered_peaks) < 2 and p.area > 50:
             # first two real peaks might be a bit lower
@@ -601,6 +741,107 @@ def generate_scoring_function( strict_params, relax_params ):
 
     return _scoring_func
 
+def least_square( ladder_alleles, z ):
+
+    """ 3rd order polynomial resolver
+    """
+    
+    ladder_allele_sorted = SortedListWithKey( ladder_alleles, key = lambda k: k.rtime )
+    f = np.poly1d(z)
+
+    def _f( rtime ):
+        size = f(rtime)
+        # get the left-closest and right-closest ladder
+
+        #left_idx = ladder_allele_sorted.bisect_key_left( rtime )
+        right_idx = ladder_allele_sorted.bisect_key_right( rtime )
+        left_idx = right_idx - 1
+        left_ladder = ladder_allele_sorted[left_idx]
+        right_ladder = ladder_allele_sorted[right_idx]
+
+        left_ladder.deviation = (left_ladder.size - f(left_ladder.rtime))**2
+        right_ladder.deviation = (right_ladder.size - f(right_ladder.rtime))**2
+        
+        #cerr(' ==> rtime: %d/%4.2f  [ %d/%4.2f | %d/%4.2f ]' % ( rtime, size,
+        #            left_ladder.rtime, left_ladder.size,
+        #            right_ladder.rtime, right_ladder.size))
+
+        return (size, (left_ladder.deviation + right_ladder.deviation) / 2,
+                        min( left_ladder.qscore, right_ladder.qscore ),
+                        const.allelemethod.leastsquare)
+
+    return _f
+
+
+def cubic_spline( ladder_alleles ):
+    """ cubic spline interpolation
+        x is peaks, y is standard size
+    """
+
+    ladder_allele_sorted = SortedListWithKey( ladder_alleles, key = lambda k: k.rtime )
+
+    ladder_peaks = []
+    ladder_sizes = []
+    for ladder_allele in ladder_allele_sorted:
+        ladder_peaks.append( ladder_allele.rtime )
+        ladder_sizes.append( ladder_allele.size )
+    f = UnivariateSpline(ladder_peaks, ladder_sizes, k=3, s=0)
+
+    def _f( rtime ):
+        size = f(rtime)
+
+        right_idx = ladder_allele_sorted.bisect_key_right( rtime )
+        left_idx = right_idx - 1
+        left_ladder = ladder_allele_sorted[left_idx]
+        right_ladder = ladder_allele_sorted[right_idx]
+
+        return (size, (left_ladder.deviation + right_ladder.deviation) / 2,
+                        min( left_ladder.qscore, right_ladder.qscore),
+                        allelemethod.cubicspline)
+
+    return _f
+
+
+def local_southern( ladder_alleles ):
+    """ southern local interpolation """
+
+    ladder_allele_sorted = SortedListWithKey( ladder_alleles, key = lambda k: k.rtime )
+    x = [ p.rtime for p in ladder_allele_sorted ]
+    y = [ p.size for p in ladder_allele_sorted ]
+
+    def _f( rtime ):
+        """ return (size, deviation)
+            deviation is calculated as delta square between curve1 and curve2
+        """
+
+        idx = ladder_allele_sorted.bisect_key_right( rtime )
+
+        # left curve
+        if (idx>1 and idx<len(x)-1):
+            z1 = np.polyfit( x[idx-2:idx+1], y[idx-2:idx+1], 2)
+            min_score1 = min( z.qscore for z in ladder_allele_sorted[idx-2:idx+1] )
+        else:
+            z1 = np.polyfit( x[0:3], y[0:3], 1)
+            min_score1 = .5 * min( z.qscore for z in ladder_allele_sorted[0:3] )
+            
+        size1 = np.poly1d( z1 )(rtime)           
+            
+        # right curve
+        if (idx<len(x)-2 and idx>0):
+            z2 = np.polyfit( x[idx-1:idx+2], y[idx-1:idx+2], 2)
+            min_score2 = min( x.qscore for x in ladder_allele_sorted[idx-1:idx+2] )
+        else:
+            z2 = np.polyfit(x[-3:], y[-3:], 1)
+            min_score2 = .5 * min( z.qscore for z in ladder_allele_sorted[-3:] )
+
+        size2 = np.poly1d( z2 )(rtime)
+
+        return ( (size1 + size2)/2, (size1 - size2) ** 2, (min_score1 + min_score2)/2,
+                const.allelemethod.localsouthern)
+
+    return _f
+
+
 ## this is a new algorithm and steps to perform peak analysis
 ##
 ## fsa = import_fsa()
@@ -624,3 +865,4 @@ def generate_scoring_function( strict_params, relax_params ):
 ##  fsa.preannotate_peaks(params.nonladder, marker=None)
 ##  fsa.call_peaks(params.nonladder, marker=None)
 ##  fsa.bin_peaks(params.nonladder, marker=None)
+

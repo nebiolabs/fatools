@@ -45,6 +45,7 @@ class ScanningParameter(object):
 
         self.min_theta = 0
         self.max_beta = 0
+        self.min_omega = 0
 
 
 class LadderScanningParameter(ScanningParameter):
@@ -78,12 +79,13 @@ class LadderScanningParameter(ScanningParameter):
         self.artifact_dist = 15
         self.artifact_ratio = 0.5
 
-
 class Params(object):
 
     ladder = LadderScanningParameter()
     nonladder = ScanningParameter()
 
+    from fatools.lib.const import allelemethod
+    allelemethod = allelemethod.leastsquare
 
 default_panels = {
     'GS600LIZ': {
@@ -111,7 +113,18 @@ default_panels = {
             }
         }
     },
-
+    'GS120LIZ': {
+        'code': 'GS120LIZ',
+        'data': {
+            'ladder': 'LIZ120',
+            'markers': {
+                'x/VIC': dict(dye='VIC', filter='G'),
+                'x/PET': dict(dye='PET', filter='R'),
+                'x/NED': dict(dye='NED', filter='Y'),
+                'x/6-FAM': dict(dye='6-FAM', filter='B'),
+            }
+        }
+    },
 }
 
 default_markers = {
