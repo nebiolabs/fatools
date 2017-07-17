@@ -6,7 +6,6 @@ from fatools.lib.utils import cerr, cout, cverr, cexit, tokenize, detect_buffer,
 import sys, argparse, yaml, csv, os
 from io import StringIO
 
-
 def init_argparser(parser=None):
 
     p = parser if parser else argparse.ArgumentParser('facmd')
