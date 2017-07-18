@@ -12,7 +12,6 @@ from sortedcontainers import SortedListWithKey
 from scipy import signal, ndimage
 from scipy.optimize import curve_fit
 from peakutils import indexes
-from matplotlib import pyplot as plt
 
 import attr
 
@@ -137,7 +136,7 @@ def preannotate_peaks(channel, params):
 
 
         for p in peaks:
-            
+
             p.type = const.peaktype.scanned
             p.size = -1
             p.bin = -1
@@ -160,8 +159,8 @@ def preannotate_peaks(channel, params):
             # moderately noise
 
             if peak_beta_theta < 0.33 * avg_beta_theta:
-                if (    p.channel.data[p.brtime] > 0.5 * p.height or
-                        p.channel.data[p.ertime] > 0.5 * p.height ):
+                if (    channel.data[p.brtime] > 0.5 * p.height or
+                        channel.data[p.ertime] > 0.5 * p.height ):
                     p.qscore = 0.25
                     p.type = const.peaktype.noise
                     continue
@@ -226,7 +225,6 @@ def call_peaks( channel, params, func, min_rtime, max_rtime ):
     peak-called or peak-unassigned
     """
 
-    print("alleles in channel ",channel.dye)
     
     for allele in channel.alleles:
 
@@ -371,7 +369,9 @@ def find_peaks(data, params, offset=0, expected_peak_number=0):
     #import pprint; pprint.pprint(peaks)
 
     # filter artefact peaks
-    non_artifact_peaks = filter_for_artifact(peaks, params, expected_peak_number)
+    non_artifact_peaks = peaks
+    if not params.keep_artifacts:
+        non_artifact_peaks = filter_for_artifact(peaks, params, expected_peak_number)
 
     # for ladder, special filtering is applied
     if params.expected_peak_number:
@@ -483,6 +483,7 @@ def filter_for_artifact(peaks, params, expected_peak_number = 0):
             popt, pcov = curve_fit( math_func, rtimes, 0.5 * thetas, p0 = [ -1, 1 ])
 
             if is_verbosity(4):
+                import matplotlib.pyplot as plt
                 xx = np.linspace( rtimes[0], rtimes[-1]+2000, 100 )
                 yy = math_func(xx, *popt)
                 plt.plot(xx, yy)
@@ -587,7 +588,7 @@ def filter_for_artifact(peaks, params, expected_peak_number = 0):
             if ( p.brtime - prev_p.ertime < params.artifact_dist
                     and p.rfu < params.artifact_ratio * prev_p.rfu ):
                 # we are artifact, just skip
-                print('artifact1:', p)
+                print("artifact: ",p)
                 continue
 
         if idx < len(peaks)-1:
@@ -595,7 +596,7 @@ def filter_for_artifact(peaks, params, expected_peak_number = 0):
             if ( next_p.brtime - p.ertime < params.artifact_dist
                     and p.rfu < params.artifact_ratio * next_p.rfu ):
                 # we are artifact, just skip
-                print('artefact2:', p)
+                print("artifact: ",p)
                 continue
 
         non_artifact_peaks.append( p )

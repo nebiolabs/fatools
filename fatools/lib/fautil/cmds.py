@@ -16,6 +16,9 @@ def init_argparser(parser=None):
     p.add_argument('--file', default=None,
             help = "Comma-separated FSA filenames (optional)")
 
+    p.add_argument('--indir', default=False,
+            help = 'input directory (eg. containing FSA files)')
+
     p.add_argument('--fsdb', default=None,
             help = 'Filesystem-based database')
 
@@ -95,7 +98,7 @@ def init_argparser(parser=None):
 
     p.add_argument('--allelemethod', default='', type=str,
                    help='allele method (leastsquare, cubicspline, localsouthern)')
-                   
+
     return p
 
 
@@ -130,7 +133,7 @@ def main(args):
     else:
         do_facmds(args, fsa_list)
 
-
+        
 def do_facmds(args, fsa_list, dbh=None):
 
     executed = 0
@@ -278,26 +281,30 @@ def do_dendogram( args, fsa_list, dbh ):
 
 def do_listpeaks( args, fsa_list, dbh ):
 
-
     if args.outfile != '-':
         out_stream = open(args.outfile, 'w')
     else:
         out_stream = sys.stdout
 
-    out_stream.write('SAMPLE\tFILENAME\tDYE  \tRTIME\tHEIGHT\tSIZE\tSCORE\n')
+    out_stream.write('SAMPLE\tFILENAME   \tDYE\tRTIME\tSIZE\tHEIGHT\tAREA\tSCORE\n')
 
     for (fsa, sample_code) in fsa_list:
         cverr(3, 'D: calling FSA %s' % fsa.filename)
+
+        markers = fsa.panel.data['markers']
 
         for channel in fsa.channels:
             if channel.is_ladder():
                 continue
 
+            color = markers["x/"+channel.dye]['filter']
+
             cout('Marker => %s | %s [%d]' % (channel.marker.code, channel.dye,
                     len(channel.alleles)))
+            cout("channel has alleles :",len(channel.alleles))
             for p in channel.alleles:
-                out_stream.write('%6s\t%8s\t%s\t%d\t%d\t%5.3f\t%3.2f\n' %
-                    (sample_code, fsa.filename, channel.dye, p.rtime, p.height, p.size, p.qscore)
+                out_stream.write('%6s\t%10s\t%3s\t%d\t%d\t%5.3f\t%3.2f\t%3.2f\n' %
+                    (sample_code, fsa.filename[:-4], color, p.rtime, p.size, p.height, p.area, p.qscore)
                 )
 
 def open_fsa( args ):

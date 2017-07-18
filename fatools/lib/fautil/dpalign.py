@@ -3,7 +3,6 @@ import numpy as np
 import math
 import pprint
 
-from matplotlib import pylab as plt
 
 # dynamic programming for peak alignment
 #
@@ -133,6 +132,8 @@ def plot_z(peaks, ladders, z):
     
     #x = np.linspace(0, peaks[-1].rtime + 100)
     
+    from matplotlib import pylab as plt
+
     x = np.linspace(0, max(ladders))
     p = np.poly1d( z )
     y_p = p(x)

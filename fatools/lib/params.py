@@ -47,6 +47,7 @@ class ScanningParameter(object):
         self.max_beta = 0
         self.min_omega = 0
 
+        self.keep_artifacts = True
 
 class LadderScanningParameter(ScanningParameter):
 
