@@ -13,6 +13,8 @@ from scipy import signal, ndimage
 from scipy.optimize import curve_fit
 from peakutils import indexes
 
+import pandas as pd
+
 import attr
 
 @attr.s(repr=False)
@@ -231,7 +233,7 @@ def call_peaks( channel, params, func, min_rtime, max_rtime ):
         if not min_rtime < allele.rtime < max_rtime:
             if allele.type == const.peaktype.scanned:
                 allele.type = const.peaktype.unassigned
-            print("allele not called... outside range!")
+            print("allele at ", allele.rtime," not called... outside range [", min_rtime, ", ", max_rtime, "]!")
             continue
         size, deviation, qcall, method = func(allele.rtime)
         allele.size = size
@@ -640,16 +642,36 @@ class NormalizedTrace(object):
         return tuple()
 
 
-def normalize_baseline( raw, medwinsize=399, savgol_size=11, savgol_order=5,
-                tophat_factor = 0.01 ):
+def normalize_baseline( raw, params, savgol_size=11, savgol_order=5,
+                tophat_factor = 0.01):
     """
     params.medwin_size
     params.savgol_order
     params.savgol_size
     """
 
-    median_line = signal.medfilt(raw, [medwinsize])
-    baseline = signal.savgol_filter( median_line, medwinsize, savgol_order)
+    medwinsize = params.baselinewindow
+    
+    if params.baselinemethod == const.baselinemethod.median:
+        baseline_raw = signal.medfilt(raw, [medwinsize])
+
+    elif params.baselinemethod == const.baselinemethod.minimum:
+        df = pd.Series(raw)
+        baseline_df = df.rolling(medwinsize,center=True).min()
+        baseline_raw = baseline_df.tolist()
+
+        # correct for NaNs in beginning and end of list
+        halfwin = (int)(medwinsize/2) 
+        baseline_raw[:halfwin] = [baseline_raw[halfwin+1]]*halfwin
+        baseline_raw[-halfwin:] = [baseline_raw[-halfwin-1]]*halfwin
+        
+    elif params.baselinemethod == const.baselinemethod.none:
+        baseline_raw = raw
+
+    else:
+        raise RuntimeError("invalid option for baseline method")
+
+    baseline = signal.savgol_filter( baseline_raw, medwinsize, savgol_order)
     corrected_baseline = raw - baseline
     np.maximum(corrected_baseline, 0, out=corrected_baseline)
     savgol = signal.savgol_filter(corrected_baseline, savgol_size, savgol_order)
@@ -672,7 +694,7 @@ def b(txt):
     return txt.encode('UTF-8')
 
 
-def separate_channels( trace ):
+def separate_channels( trace, params):
     # return a list of [ 'dye name', dye_wavelength, numpy_array, numpy_smooth_baseline ]
 
     results = []
@@ -681,7 +703,7 @@ def separate_channels( trace ):
             dye_name = trace.get_data(b('DyeN%d' % idx)).decode('UTF-8')
             dye_wavelength = trace.get_data(b('DyeW%d' % idx))
             raw_channel = np.array( trace.get_data(b('DATA%d' % data_idx)) )
-            nt = normalize_baseline( raw_channel )
+            nt = normalize_baseline( raw_channel, params )
 
             results.append(
                 TraceChannel(dye_name, dye_wavelength, raw_channel, nt.signal)

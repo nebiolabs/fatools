@@ -104,8 +104,11 @@ class FSA(FSAMixIn):
         self.channels.append(channel)
         return channel
 
+    def close_file(self):
+        self._fhdl.close()
+        
     @classmethod
-    def from_file(cls, fsa_filename, panel, excluded_markers=None, cache=True):
+    def from_file(cls, fsa_filename, panel, params, excluded_markers=None, cache=True):
         fsa = cls()
         fsa.filename = os.path.basename(fsa_filename)
         fsa._fhdl = open(fsa_filename, 'rb')
@@ -120,7 +123,7 @@ class FSA(FSAMixIn):
                 for c in fsa.channels:
                     c.fsa = fsa
         else:
-            fsa.create_channels()
+            fsa.create_channels(params)
             if cache and os.path.exists('.fatools_caches/channels'):
                 for c in fsa.channels: c.fsa = None
                 pickle.dump(fsa.channels, open(cache_file, 'wb'))

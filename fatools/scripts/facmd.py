@@ -454,12 +454,12 @@ def do_listpeaks( args, dbh ):
     out_stream.write('SAMPLE\tFILENAME\tDYE\tRTIME\tHEIGHT\tSIZE\tSCORE\tID\n')
 
     for (assay, sample_code) in assay_list:
-        cout('Sample: %s assay: %s' % (sample_code, assay.filename))
+        #cout('Sample: %s assay: %s' % (sample_code, assay.filename))
         for channel in assay.channels:
             if markers and channel.marker not in markers:
                 continue
-            cout('Marker => %s | %s [%d]' % (channel.marker.code, channel.dye,
-                    len(channel.alleles)))
+            #cout('Marker => %s | %s [%d]' % (channel.marker.code, channel.dye,
+            #        len(channel.alleles)))
             for p in channel.alleles:
                 out_stream.write('%s\t%s\t%s\t%d\t%d\t%5.3f\t%3.2f\t%d\n' %
                     (sample_code, assay.filename, channel.dye, p.rtime, p.height, p.size, p.qscore, p.id)

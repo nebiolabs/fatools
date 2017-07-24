@@ -2,6 +2,7 @@
 
 from fatools.lib import params
 from fatools.lib.utils import cerr, cout, cverr, cexit, tokenize, detect_buffer, set_verbosity
+from fatools.lib.fautil.mixin2 import LadderMismatchException
 
 import sys, argparse, yaml, csv, os
 from io import StringIO
@@ -57,6 +58,9 @@ def init_argparser(parser=None):
     p.add_argument('--listpeaks', default=False, action='store_true',
             help = 'list all peaks')
 
+    p.add_argument('--peaks_format', default="standard",
+                   help = "format for peaks output file (standard, peakscanner)")
+    
     # semi-mandatory
 
     p.add_argument('--panel', default="",
@@ -99,6 +103,12 @@ def init_argparser(parser=None):
     p.add_argument('--allelemethod', default='', type=str,
                    help='allele method (leastsquare, cubicspline, localsouthern)')
 
+    p.add_argument('--baselinemethod', default='median', type=str,
+                   help='baseline method (none, median, minimum)')
+
+    p.add_argument('--baselinewindow', default=399, type=int,
+                   help='size of running window for baseline determination (default 399)')
+
     return p
 
 
@@ -109,9 +119,35 @@ def main(args):
 
     dbh = None
 
-    if args.file or args.infile:
+    # set parameter for baseline correction and allelemethod
+    from fatools.lib.const import allelemethod, baselinemethod
+    _params = params.Params()
+
+    _params.baselinewindow = args.baselinewindow 
+
+    if args.baselinemethod !="":
+        if args.baselinemethod=='none':
+            _params.baselinemethod = baselinemethod.none
+        elif args.baselinemethod=='median':
+            _params.baselinemethod = baselinemethod.median
+        elif args.baselinemethod=='minimum':
+            _params.baselinemethod = baselinemethod.minimum
+        else:
+            raise NotImplementedError()
+
+    if args.allelemethod !="":
+        if args.allelemethod=='leastsquare':
+            _params.allelemethod = allelemethod.leastsquare
+        elif args.allelemethod=='cubicspline':
+            _params.allelemethod = allelemethod.cubicspline
+        elif args.allelemethod=='localsouthern':
+            _params.allelemethod = allelemethod.localsouthern
+        else:
+            raise NotImplementedError()
+
+    if args.file or args.infile or args.indir:
         cverr(4, 'D: opening FSA file(s)')
-        fsa_list = open_fsa(args)
+        fsa_list = open_fsa(args, _params)
     elif dbh is None:
         cverr(4, 'D: connecting to database')
         dbh = get_dbhandler(args)
@@ -129,23 +165,26 @@ def main(args):
             keys = input('Do you want to continue [y/n]? ')
             if not keys.lower().strip().startswith('y'):
                 sys.exit(1)
-        do_facmds(args, fsa_list, dbh)
+        do_facmds(args, fsa_list, _params, dbh)
     else:
-        do_facmds(args, fsa_list)
+        do_facmds(args, fsa_list, _params)
 
         
-def do_facmds(args, fsa_list, dbh=None):
+def do_facmds(args, fsa_list, params, dbh=None):
 
+    bad_files_filename = args.indir + "/" + args.indir + "_badfiles.out"
+
+    f_bad_files = open(bad_files_filename,'w')
+    
     executed = 0
-
     if args.clear:
         do_clear( args, fsa_list, dbh )
         executed += 1
     if args.align:
-        do_align( args, fsa_list, dbh )
+        do_align( args, fsa_list, f_bad_files, dbh )
         executed += 1
     if args.call:
-        do_call( args, fsa_list, dbh )
+        do_call( args, fsa_list, params, dbh )
         executed += 1
     if args.plot:
         do_plot( args, fsa_list, dbh )
@@ -165,12 +204,13 @@ def do_facmds(args, fsa_list, dbh=None):
     else:
         cerr('I: executed %d command(s)' % executed)
 
-
+    f_bad_files.close()
+    
 def do_clear( args, fsa_list, dbh ):
     pass
 
 
-def do_align( args, fsa_list, dbh ):
+def do_align( args, fsa_list, f_bad_files, dbh ):
 
     _params = params.Params()
     if args.ladder_rfu_threshold >= 0:
@@ -180,31 +220,23 @@ def do_align( args, fsa_list, dbh ):
 
     for (fsa, sample_code) in fsa_list:
         cverr(3, 'D: aligning FSA %s' % fsa.filename)
-        fsa.align(_params)
+        try:
+            fsa.align(_params)
+        except LadderMismatchException:
+            f_bad_files.write(("LadderMismatch: %s\n") % fsa.filename)
+            continue
 
-
-def do_call( args, fsa_list, dbh ):
+def do_call( args, fsa_list, params, dbh ):
 
     cerr('I: Calling non-ladder peaks...')
 
-    _params = params.Params()
     if args.nonladder_rfu_threshold >= 0:
-        _params.nonladder.min_rfu = args.nonladder_rfu_threshold
+        params.nonladder.min_rfu = args.nonladder_rfu_threshold
 
-    from fatools.lib.const import allelemethod
-    if args.allelemethod !="":
-        if args.allelemethod=='leastsquare':
-            _params.allelemethod = allelemethod.leastsquare
-        elif args.allelemethod=='cubicspline':
-            _params.allelemethod = allelemethod.cubicspline
-        elif args.allelemethod=='localsouthern':
-            _params.allelemethod = allelemethod.localsouthern
-        else:
-            raise NotImplementedError()
-                   
+
     for (fsa, sample_code) in fsa_list:
         cverr(3, 'D: calling FSA %s' % fsa.filename)
-        fsa.call(_params)
+        fsa.call(params)
 
 
 def do_plot( args, fsa_list, dbh ):
@@ -223,6 +255,7 @@ def do_ladderplot( args, fsa_list, dbh ):
 
     cerr('I: Creating ladder plot...')
 
+    import matplotlib.pyplot as plt
     for (fsa, sample_code) in fsa_list:
 
         c = fsa.get_ladder_channel()
@@ -232,13 +265,13 @@ def do_ladderplot( args, fsa_list, dbh ):
         alleles = c.get_alleles()
         allele_sizes = [allele.rtime for allele in alleles]
 
-        import matplotlib.pyplot as plt
         plt.plot(allele_sizes, ladder_sizes, 'p', label='peaks matched to ladder steps')
 
         # plot fit of ladder scan times to base pairs
         import numpy as  np
         fit = np.poly1d(c.fsa.z)
-        x = np.arange(allele_sizes[0] - 150, allele_sizes[-1] + 100)  # len(c.data))
+        #x = np.arange(allele_sizes[0] - 150, allele_sizes[-1] + 100)  # len(c.data))
+        x = np.arange(800, allele_sizes[-1] + 100)  # len(c.data))
         plt.plot(x, fit(x), label='fitted curve')
         plt.legend()
         plt.xlabel("peak scan times")
@@ -286,28 +319,46 @@ def do_listpeaks( args, fsa_list, dbh ):
     else:
         out_stream = sys.stdout
 
-    out_stream.write('SAMPLE\tFILENAME   \tDYE\tRTIME\tSIZE\tHEIGHT\tAREA\tSCORE\n')
+    if args.peaks_format=='standard':
+        out_stream.write('SAMPLE\tFILENAME   \tDYE\tRTIME\tSIZE\tHEIGHT\tAREA\tSCORE\n')
+    elif args.peaks_format == 'peakscanner':
+        out_stream.write("Dye/Sample Peak,Sample File Name,Size,Height,Area in Point,Area in BP,Data Point,Begin Point,")
+        out_stream.write("Begin BP,End Point,End BP,Width in Point,Width in BP,User Comments,User Edit\n")
+
+    else:
+        raise RuntimeError("Unknown value for args.peaks_format")
+    out_stream.close()
 
     for (fsa, sample_code) in fsa_list:
         cverr(3, 'D: calling FSA %s' % fsa.filename)
 
         markers = fsa.panel.data['markers']
 
+        out_stream = open(args.outfile, 'a')
         for channel in fsa.channels:
             if channel.is_ladder():
                 continue
 
             color = markers["x/"+channel.dye]['filter']
 
-            cout('Marker => %s | %s [%d]' % (channel.marker.code, channel.dye,
-                    len(channel.alleles)))
-            cout("channel has alleles :",len(channel.alleles))
+            #cout('Marker => %s | %s [%d]' % (channel.marker.code, channel.dye,
+            #       len(channel.alleles)))
+            #cout("channel has alleles :",len(channel.alleles))
+            i=1
             for p in channel.alleles:
-                out_stream.write('%6s\t%10s\t%3s\t%d\t%d\t%5.3f\t%3.2f\t%3.2f\n' %
-                    (sample_code, fsa.filename[:-4], color, p.rtime, p.size, p.height, p.area, p.qscore)
-                )
 
-def open_fsa( args ):
+                if args.peaks_format=='standard':
+                    out_stream.write('%6s\t%10s\t%3s\t%d\t%d\t%5i\t%3.2f\t%3.2f\n' %
+                                     (sample_code, fsa.filename[:-4], color, p.rtime, p.size, p.height, p.area, p.qscore))
+                else:
+                    out_stream.write('"%s, %i",%s, %f, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f,,\n' %
+                                    #(color, i+1, fsa.filename, size_bp, height,area_s, area_bp, size_s, begin_s, begin_bp, end_s, end_bp, width_s, width_bp))
+                                     (color, i, fsa.filename, p.size, p.height, p.area, -1, p.rtime, -1,-1,-1,-1,-1,-1))
+                i = i+1
+                
+        out_stream.close()
+
+def open_fsa( args, _params ):
     """ open FSA file(s) and prepare fsa instances
         requires: args.file, args.panel, args.panelfile
     """
@@ -342,7 +393,13 @@ def open_fsa( args ):
     if args.file:
         for fsa_filename in args.file.split(','):
             fsa_filename = fsa_filename.strip()
-            fsa = FSA.from_file(fsa_filename, panel, cache = not args.no_cache)
+
+            if args.indir != "":
+                filename = args.indir + "/" + fsa_filename
+            else:
+                filename = fsa_filename
+
+            fsa = FSA.from_file(filename, panel, _params, cache = not args.no_cache)
             # yield (fsa, str(i))
             fsa_list.append( (fsa, str(index)) )
             index += 1
@@ -371,7 +428,7 @@ def open_fsa( args ):
             panel_code = r.get('PANEL', None) or args.panel
             panel = Panel.get_panel(panel_code)
 
-            fsa = FSA.from_file( fsa_filename, panel, options, cache = not args.no_cache )
+            fsa = FSA.from_file( fsa_filename, panel, _params, options, cache = not args.no_cache )
             if 'SAMPLE' in inrows.fieldnames:
 
                 # yield (fsa, r['SAMPLE'])
@@ -381,6 +438,17 @@ def open_fsa( args ):
                 # yield (fsa, str(index))
                 fsa_list.append( (fsa, str(index)) )
                 index += 1
+
+    elif args.indir:
+        import glob
+        for fsa_filename in glob.glob(args.indir+"/*.fsa"):
+
+            fsa_filename = fsa_filename.strip()
+
+            fsa = FSA.from_file(fsa_filename, panel, _params, cache = not args.no_cache)
+            # yield (fsa, str(i))
+            fsa_list.append( (fsa, str(index)) )
+            index += 1
 
     return fsa_list
 

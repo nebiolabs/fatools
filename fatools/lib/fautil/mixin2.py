@@ -10,6 +10,9 @@ import time
 
 # FA
 
+class LadderMismatchException(Exception):
+    """Raised when number of peaks in ladder channel not equal to number of ladder steps."""
+    pass
 
 class AlleleMixIn(object):
 
@@ -93,7 +96,6 @@ class ChannelMixIn(object):
         
         min_rtime = params.min_rtime
         max_rtime = ladders[-1].rtime
-        print("min/max rtime: ",min_rtime,", ", max_rtime)
         
         algo.call_peaks(self, params, func, min_rtime, max_rtime)
         #algo.bin_peaks(self, params, self.marker)
@@ -139,9 +141,7 @@ class ChannelMixIn(object):
         ladder_sizes.sort()
 
         if (len(alleles) != len(ladder_sizes)):
-            cerr("alleles not same length as ladder!")
-            import sys
-            sys.exit() # exit for now because this code can't handle the wrong number of peaks yet
+            raise LadderMismatchException( ("alleles not same length as ladder for file: %s!") % fsa.filename)
 
         for allele, ladder_size in zip(alleles, ladder_sizes):
             allele.size = ladder_size
@@ -188,6 +188,8 @@ class FSAMixIn(object):
         if not hasattr(self, '_trace'):
             from fatools.lib.fautil import traceio
             self._trace = traceio.read_abif_stream( self.get_data_stream() )
+            self.close_file()
+            
         return self._trace
 
 
@@ -205,10 +207,10 @@ class FSAMixIn(object):
                 self.excluded_markers.append(marker_code.lower())
 
 
-    def create_channels(self):
+    def create_channels(self, params):
         cerr('I: Generating channels for %s' % self.filename)
         trace = self.get_trace()
-        trace_channels = algo.separate_channels(trace)
+        trace_channels = algo.separate_channels(trace, params)
         for tc in trace_channels:
             channel = self.Channel(data=tc.smooth_channel, dye=tc.dye_name,
                         wavelen=tc.dye_wavelength,
@@ -227,7 +229,7 @@ class FSAMixIn(object):
     def call(self, parameters):
 
         ladder = self.get_ladder_channel()
-        
+
         for c in self.channels:
             if c.marker.code != 'ladder':
                 c.scan( parameters, ladder)

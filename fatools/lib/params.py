@@ -85,8 +85,10 @@ class Params(object):
     ladder = LadderScanningParameter()
     nonladder = ScanningParameter()
 
-    from fatools.lib.const import allelemethod
+    from fatools.lib.const import allelemethod, baselinemethod
     allelemethod = allelemethod.leastsquare
+    baselinemethod = baselinemethod.median
+    baselinewindow = 399
 
 default_panels = {
     'GS600LIZ': {

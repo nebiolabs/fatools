@@ -80,6 +80,10 @@ class binningmethod(object):
     auto = 'auto'
     semiauto = 'semiauto'
 
+class baselinemethod(object):
+    none = 'none'
+    median = 'median'
+    minimum = 'minimum'
 
 dyes = [ '6-FAM', 'NED', 'VIC', 'PET', 'LIZ' ]
 
