@@ -64,6 +64,12 @@ class Allele(AlleleMixIn):
         self.bin = -1
         self.dev = -1
 
+        self.begin_bp = -1
+        self.end_bp = -1
+        self.width_bp = -1
+        self.area_bp = -1
+
+        self.qscore = 99
 
 class Channel(ChannelMixIn):
 

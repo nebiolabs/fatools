@@ -40,7 +40,7 @@ class ScanningParameter(object):
 
         self.norm_thres = 0.05
         self.min_dist = 10
-        self.min_rfu = 20
+        self.min_rfu = 20 # if this is a fraction < 1, assumes a relative min (relative to tallest peak in channel)
         self.artifact_dist = 20
 
         self.min_theta = 0
@@ -54,6 +54,7 @@ class LadderScanningParameter(ScanningParameter):
     def __init__(self):
         super().__init__()
         self.min_rtime = 1
+        self.max_rtime = 12500
         self.min_relative_ratio = 0
         self.max_relative_ratio = 0
         self.min_height_ratio = 0
@@ -71,7 +72,7 @@ class LadderScanningParameter(ScanningParameter):
         self.expected_peak_number = 36
 
         self.norm_thres = 0.1
-        self.min_rfu = 3
+        self.min_rfu = 3 # if this is a fraction < 1, assumes a relative min (relative to tallest peak in channel)
         self.min_dist = 12
 
         self.min_theta = 4
@@ -91,6 +92,7 @@ class Params(object):
     baselinewindow = 399
 
 default_panels = {
+    
     'GS600LIZ': {
         'code': 'GS600LIZ',
         'data': {
@@ -125,6 +127,7 @@ default_panels = {
                 'x/PET': dict(dye='PET', filter='R'),
                 'x/NED': dict(dye='NED', filter='Y'),
                 'x/6-FAM': dict(dye='6-FAM', filter='B'),
+                'x/ladder': dict(dye='LIZ', filter='O'),
             }
         }
     },

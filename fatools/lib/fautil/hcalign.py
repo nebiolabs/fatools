@@ -104,7 +104,7 @@ def align_hc( peaks, ladder):
 
     # generate cluster should use so-called balance tree
 
-    print(peak_clusters)
+    #print(peak_clusters)
 
     if len(peak_clusters[-1]) == 1:
         if len( reduce(operator.add, peak_clusters ) ) > len(ladder_sizes):

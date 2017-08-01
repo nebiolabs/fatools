@@ -26,8 +26,20 @@ def align_pm(peaks, ladder, anchor_pairs=None):
         initial_z = estimate_z(rtimes, bpsizes, 1)
 
     anchor_pairs.sort()
-    pairs, z, rss, f = align_upper_pm(peaks, ladder, anchor_pairs, initial_z)
-    pairs, z, rss, f = align_lower_pm(peaks, ladder, pairs, initial_z)
+
+    # if the number of anchor pairs equals the number of ladder steps, no need to do pair matching
+    if len(anchor_pairs)==len(ladder['sizes']):
+
+        f = ZFunc(peaks, ladder['sizes'], anchor_pairs, estimate=True)
+
+        anchor_rtimes, anchor_bpsizes = zip( *anchor_pairs )
+        zres = estimate_z(anchor_rtimes, anchor_bpsizes, 2)
+        score, z = minimize_score(f, zres.z, 2)        
+        pairs, rss = f.get_pairs(z)
+
+    else:
+        pairs, z, rss, f = align_upper_pm(peaks, ladder, anchor_pairs, initial_z)
+        pairs, z, rss, f = align_lower_pm(peaks, ladder, pairs, initial_z)
 
     #print(rss)
     #plot(f.rtimes, f.sizes, z, pairs)
@@ -100,7 +112,7 @@ def align_pm(peaks, ladder, anchor_pairs=None):
 
 def align_lower_pm(peaks, ladder, anchor_pairs, anchor_z):
 
-    # anchor pairs must be in asceding order
+    # anchor pairs must be in ascending order
 
 
     last_rtime = anchor_pairs[-1][0]
@@ -116,13 +128,12 @@ def align_lower_pm(peaks, ladder, anchor_pairs, anchor_z):
 
     f = ZFunc(peaks, ladder['sizes'], anchor_pairs, estimate=True)
 
+    scores = []
+
     # check the first
-    print(anchor_z)
     est_first_bpsize = anchor_z[2] * lower_peaks[0].rtime + anchor_z[3]
-    print('est_first_bpsize:', est_first_bpsize)
     first_bpsize = [ s for s in lower_sizes if s >= est_first_bpsize ][0]
 
-    scores = []
     for first_peak in lower_peaks[:-2]:
         if first_peak.rtime >= anchor_pairs[0][0]:
             break
@@ -142,7 +153,6 @@ def align_lower_pm(peaks, ladder, anchor_pairs, anchor_z):
     z = scores[0][1]
     pairs, rss = f.get_pairs(z)
 
-    print(rss)
     #plot(f.rtimes, f.sizes, z, pairs )
 
     return pairs, z, rss, f
@@ -155,8 +165,6 @@ def align_lower_pm(peaks, ladder, anchor_pairs, anchor_z):
 def align_upper_pm(peaks, ladder, anchor_pairs, anchor_z):
 
     # anchor pairs must be in asceding order
-
-
     anchor_rtimes, anchor_bpsizes = zip( *anchor_pairs )
     anchor_rtimes = list(anchor_rtimes)
     anchor_bpsizes = list(anchor_bpsizes)
@@ -172,17 +180,17 @@ def align_upper_pm(peaks, ladder, anchor_pairs, anchor_z):
     #sizes = ladder['sizes']
     f = ZFunc(peaks, sizes, anchor_pairs, estimate=True)
 
+    scores = []
+
     # check the first
     #print(peaks[-1])
     est_last_bpsize = np.poly1d(anchor_z)(peaks[-1].rtime)
     #est_last_bpsize = anchor_z[1] * peaks[-1].rtime**2 + anchor_z[2] * peaks[-1].rtime + anchor_z[3]
     #print(est_last_bpsize)
-    last_bpsize = max( remaining_sizes[1], [ s for s in sizes if s < est_last_bpsize ][-3] )
-    #print('last_bpsize:', last_bpsize)
+    last_bpsize = max( remaining_sizes[1] if remaining_sizes else 0, [ s for s in sizes if s < est_last_bpsize ][-3] )
     #plot(f.rtimes, f.sizes, anchor_z, [])
 
-    scores = []
-    #print(peaks)
+
     for last_peak in reversed(peaks[-14:]):
         if last_peak.rtime <= anchor_pairs[-1][0]:
             break

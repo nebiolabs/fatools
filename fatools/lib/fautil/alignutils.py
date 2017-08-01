@@ -1,10 +1,13 @@
 
-from fatools.lib.utils import cerr, cout
+from fatools.lib.utils import cerr, cout, is_verbosity
 from fatools.lib.fautil.dpalign import dp
 
 import numpy as np
 import attr
 import math
+
+import warnings
+warnings.simplefilter('ignore', np.RankWarning)
 
 @attr.s
 class AlignResult(object):
@@ -49,7 +52,7 @@ def estimate_z( x, y, degree = 3 ):
         y ~ f(x) where f = poly1d(z)
         rss ~ SUM( (f(x) - y)**2 ) for all (x,y)
     """
-    z = np.polyfit( x, y, degree )
+    z = np.polyfit( x, y, degree)
     p = np.poly1d( z )
     y_p = p(x)
     rss = ( (y_p - y) ** 2 ).sum()
@@ -68,10 +71,12 @@ def generate_similarity( peaks ):
     similarity = list( [ (np.log10( rfu/ highest_rfu ) + N) / N if rfu < highest_rfu
                             else 1.0
                             for rfu in rfus ] )
-    print(N,' =>')
-    print(rfus)
-    print(highest_rfu)
-    print(similarity)
+    if is_verbosity(4):
+        print(N,' => ')
+        print(rfus)
+        print(highest_rfu)
+        print(similarity)
+
     return similarity
 
 

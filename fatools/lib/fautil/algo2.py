@@ -17,6 +17,10 @@ import pandas as pd
 
 import attr
 
+class LadderMismatchException(Exception):
+    """Raised when number of peaks in ladder channel not equal to number of ladder steps."""
+    pass
+
 @attr.s(repr=False)
 class Peak(object):
     rtime = attr.ib(default=-1)
@@ -136,8 +140,7 @@ def preannotate_peaks(channel, params):
         if len(sampled_beta_theta) == 0: sampled_beta_theta = beta_theta
         avg_beta_theta = sum(sampled_beta_theta) / len(sampled_beta_theta)
 
-
-        for p in peaks:
+        for p in peaks: # these are actually Alleles, not Peaks
 
             p.type = const.peaktype.scanned
             p.size = -1
@@ -199,7 +202,6 @@ def preannotate_peaks(channel, params):
             if p.qscore < 0:
                 p.qscore = 0.0  # reset to zero
 
-
     # checking for stutter peaks based on minimum rtime & rfu
 
     for (peaks, med_baseline) in channel_peaks:
@@ -221,6 +223,7 @@ def preannotate_peaks(channel, params):
                         allele.type = const.peaktype.stutter
                         allele.qscore -= 0.2
 
+
 def call_peaks( channel, params, func, min_rtime, max_rtime ):
     """
     call (determine size) each of peaks with type peak-scanned, and annotate as either
@@ -233,7 +236,8 @@ def call_peaks( channel, params, func, min_rtime, max_rtime ):
         if not min_rtime < allele.rtime < max_rtime:
             if allele.type == const.peaktype.scanned:
                 allele.type = const.peaktype.unassigned
-            print("allele at ", allele.rtime," not called... outside range [", min_rtime, ", ", max_rtime, "]!")
+            if is_verbosity(2):
+                print("allele at ", allele.rtime," not called... outside range [", min_rtime, ", ", max_rtime, "] (height=", allele.height,") !")
             continue
         size, deviation, qcall, method = func(allele.rtime)
         allele.size = size
@@ -243,8 +247,16 @@ def call_peaks( channel, params, func, min_rtime, max_rtime ):
         if allele.type == const.peaktype.scanned:
             allele.type = const.peaktype.called
         allele.method = const.binningmethod.notavailable
-    
-        print(allele)
+
+        # set values in base pair units
+        allele.begin_bp = func(allele.brtime)[0]
+        allele.end_bp = func(allele.ertime)[0]
+        allele.width_bp = allele.end_bp - allele.begin_bp
+        size_delta = func(allele.rtime+1)[0] - size
+        allele.area_bp = float(allele.area) * size_delta
+        
+        if is_verbosity(4):
+            print(allele)
 
 def align_peaks(channel, params, ladder, anchor_pairs=None):
     """
@@ -253,9 +265,13 @@ def align_peaks(channel, params, ladder, anchor_pairs=None):
 
     alleles = channel.get_alleles()
 
+    if (len(alleles) != len(ladder['sizes'])):
+        raise LadderMismatchException( ("alleles not same length as ladder for file: %s!") % channel.fsa.filename)
+
     # reset all peaks first
     for p in channel.get_alleles():
         p.size = -1
+        p.area_bp = -1
         p.status = const.peaktype.scanned
 
     #anchor_pairs = pairs
@@ -300,10 +316,6 @@ def align_peaks(channel, params, ladder, anchor_pairs=None):
     #import pprint; pprint.pprint( aligned_peaks )
     return result
 
-
-
-
-
 # helper functions
 
 def find_raw_peaks(data, params, offset, expected_peak_number=0):
@@ -323,7 +335,6 @@ def find_raw_peaks(data, params, offset, expected_peak_number=0):
         expected_peak_number = expected_peak_number * 1.8
         while len(indices) <= expected_peak_number and norm_threshold > 1e-7:
             indices = indexes( obs_data, norm_threshold, min_dist)
-            print(len(indices), norm_threshold)
             norm_threshold *= 0.5
     elif False:
         indices = indexes( obs_data, params.norm_thres, params.min_dist)
@@ -339,11 +350,18 @@ def find_raw_peaks(data, params, offset, expected_peak_number=0):
     if offset > 0:
         indices += offset
 
-    # filter peaks by minimum rfu, and by maximum peak number after sorted by rfu
-    peaks = [ Peak( int(i), int(data[i]) ) for i in indices
-            if (data[i] >= params.min_rfu and params.min_rtime < i < params.max_rtime) ]
+    # filter peaks by minimum rfu if configured, otherwise use ratio
+    if params.min_rfu>=1:        
+        peaks = [ Peak( int(i), int(data[i]) ) for i in indices
+                  if (data[i] >= params.min_rfu and params.min_rtime < i < params.max_rtime) ]
+    else:
+        # get highest peak
+        max_rfu = max(data)
+        peaks = [ Peak( int(i), int(data[i]) ) for i in indices
+                  if (data[i] >= params.min_rfu * max_rfu and params.min_rtime < i < params.max_rtime) ]
+        
+    # filter peaks by maximum peak number after sorted by rfu
     #peaks = sorted( peaks, key = lambda x: x.rfu )[:params.max_peak_number * 2]
-
     #import pprint; pprint.pprint(peaks)
     #print('======')
 
@@ -651,6 +669,47 @@ def normalize_baseline( raw, params, savgol_size=11, savgol_order=5,
     """
 
     medwinsize = params.baselinewindow
+
+    """
+    baseline_raw_med = signal.medfilt(raw, 499)
+    baseline_med = signal.savgol_filter( baseline_raw_med, 499, savgol_order)
+    
+    df_min = pd.Series(raw)
+    baseline_df_min = df_min.rolling(51,center=True).min()
+    baseline_raw_min = baseline_df_min.tolist()
+    
+    # correct for NaNs in beginning and end of list
+    halfwin_min = (int)(51/2)
+    baseline_raw_min[:halfwin_min] = [baseline_raw_min[halfwin_min+1]]*halfwin_min
+    baseline_raw_min[-halfwin_min:] = [baseline_raw_min[-halfwin_min-1]]*halfwin_min
+    baseline_min = signal.savgol_filter( baseline_raw_min, 51, savgol_order)
+
+    import matplotlib.pyplot as plt
+
+    savgol_raw = signal.savgol_filter(raw, savgol_size, savgol_order)
+    smooth_raw = ndimage.white_tophat(savgol_raw, None,
+                    np.repeat([1], int(round(raw.size * tophat_factor))))
+    #plt.plot(smooth_raw, label='raw (smoothed)')
+    
+    corr_min = raw-baseline_min
+    plt.plot(corr_min, label='minimum 51 (baseline subtr.)')
+    np.maximum(corr_min, 0, out=corr_min)
+    plt.plot(corr_min, label='minimum 51 (neg. corrected)')
+    savgol_min = signal.savgol_filter(corr_min, savgol_size, savgol_order)
+    plt.plot(savgol_min, label='minimum 51 (smoothed)')
+    smooth_min = ndimage.white_tophat(savgol_min, None,
+                    np.repeat([1], int(round(raw.size * tophat_factor))))
+    plt.plot(smooth_min, label='minimum 51 (top hat)')
+    
+    corr_med = raw-baseline_med
+    np.maximum(corr_med, 0, out=corr_med)
+    savgol_med = signal.savgol_filter(corr_med, savgol_size, savgol_order)
+    smooth_med = ndimage.white_tophat(savgol_med, None,
+                    np.repeat([1], int(round(raw.size * tophat_factor))))
+    #plt.plot(smooth_med, label='median 399 (smoothed)')
+    plt.legend()
+    plt.show()
+    """
     
     if params.baselinemethod == const.baselinemethod.median:
         baseline_raw = signal.medfilt(raw, [medwinsize])
@@ -661,10 +720,10 @@ def normalize_baseline( raw, params, savgol_size=11, savgol_order=5,
         baseline_raw = baseline_df.tolist()
 
         # correct for NaNs in beginning and end of list
-        halfwin = (int)(medwinsize/2) 
+        halfwin = (int)(medwinsize/2)
         baseline_raw[:halfwin] = [baseline_raw[halfwin+1]]*halfwin
         baseline_raw[-halfwin:] = [baseline_raw[-halfwin-1]]*halfwin
-        
+
     elif params.baselinemethod == const.baselinemethod.none:
         baseline_raw = raw
 
@@ -674,11 +733,12 @@ def normalize_baseline( raw, params, savgol_size=11, savgol_order=5,
     baseline = signal.savgol_filter( baseline_raw, medwinsize, savgol_order)
     corrected_baseline = raw - baseline
     np.maximum(corrected_baseline, 0, out=corrected_baseline)
-    savgol = signal.savgol_filter(corrected_baseline, savgol_size, savgol_order)
-    smooth = ndimage.white_tophat(savgol, None,
-                    np.repeat([1], int(round(raw.size * tophat_factor))))
+    #savgol = signal.savgol_filter(corrected_baseline, savgol_size, savgol_order)
+    #smooth = ndimage.white_tophat(savgol, None,
+    #                np.repeat([1], int(round(raw.size * tophat_factor))))
 
-    return NormalizedTrace( signal=smooth, baseline = baseline )
+    #return NormalizedTrace( signal=smooth, baseline = baseline )
+    return NormalizedTrace( signal=corrected_baseline, baseline = baseline )
 
 
 @attr.s
@@ -768,8 +828,16 @@ def least_square( ladder_alleles, z ):
 
     """ 3rd order polynomial resolver
     """
-    
+
     ladder_allele_sorted = SortedListWithKey( ladder_alleles, key = lambda k: k.rtime )
+    x = [ p.rtime for p in ladder_allele_sorted ]
+    y = [ p.size for p in ladder_allele_sorted ]
+
+    for p in ladder_alleles:
+        if p.qscore>=99:
+            print("missing qscore for allele: ", p,"!")
+            exit(6)
+            
     f = np.poly1d(z)
 
     def _f( rtime ):
@@ -779,18 +847,36 @@ def least_square( ladder_alleles, z ):
         #left_idx = ladder_allele_sorted.bisect_key_left( rtime )
         right_idx = ladder_allele_sorted.bisect_key_right( rtime )
         left_idx = right_idx - 1
-        left_ladder = ladder_allele_sorted[left_idx]
-        right_ladder = ladder_allele_sorted[right_idx]
 
-        left_ladder.deviation = (left_ladder.size - f(left_ladder.rtime))**2
-        right_ladder.deviation = (right_ladder.size - f(right_ladder.rtime))**2
-        
+        # check if in range
+        if left_idx<0:
+            # do linear extrapolation based on 1st 3 ladder points
+            z1 = np.polyfit(x[0:3], y[0:3], 1)
+            left_ladder = np.poly1d(z1)(rtime)
+            left_deviation = max((z.size - f(z.rtime)) for z in ladder_allele_sorted[0:3])**2
+            left_qscore = min(z.qscore for z in ladder_allele_sorted[0:3])
+        else:
+            left_ladder = ladder_allele_sorted[left_idx]
+            left_deviation = (left_ladder.size - f(left_ladder.rtime))**2
+            left_qscore = left_ladder.qscore
+            
+        if right_idx >= len(ladder_alleles):
+            # do linear extrapolation based on last 3 points
+            z2 = np.polyfit(x[-3:], y[-3:], 1)
+            left_ladder = np.poly1d(z2)(rtime)
+            right_deviation = max((z.size - f(z.rtime)) for z in ladder_allele_sorted[-3:])**2
+            right_qscore = min(z.qscore for z in ladder_allele_sorted[-3:])
+        else:
+            right_ladder = ladder_allele_sorted[right_idx]
+            right_deviation = (right_ladder.size - f(right_ladder.rtime))**2
+            right_qscore = right_ladder.qscore
+            
         #cerr(' ==> rtime: %d/%4.2f  [ %d/%4.2f | %d/%4.2f ]' % ( rtime, size,
         #            left_ladder.rtime, left_ladder.size,
         #            right_ladder.rtime, right_ladder.size))
 
-        return (size, (left_ladder.deviation + right_ladder.deviation) / 2,
-                        min( left_ladder.qscore, right_ladder.qscore ),
+        return (size, (left_deviation + right_deviation) / 2,
+                        min( left_qscore, right_qscore ),
                         const.allelemethod.leastsquare)
 
     return _f

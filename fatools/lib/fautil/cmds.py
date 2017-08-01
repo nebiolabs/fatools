@@ -1,8 +1,8 @@
 # provide commands for Fragment Analysis (FA)
 
 from fatools.lib import params
-from fatools.lib.utils import cerr, cout, cverr, cexit, tokenize, detect_buffer, set_verbosity
-from fatools.lib.fautil.mixin2 import LadderMismatchException
+from fatools.lib.utils import cerr, cout, cverr, cexit, tokenize, detect_buffer, set_verbosity, is_verbosity
+from fatools.lib.fautil.algo2 import LadderMismatchException
 
 import sys, argparse, yaml, csv, os
 from io import StringIO
@@ -170,7 +170,7 @@ def main(args):
         do_facmds(args, fsa_list, _params)
 
         
-def do_facmds(args, fsa_list, params, dbh=None):
+def do_facmds(args, fsa_list, _params, dbh=None):
 
     bad_files_filename = args.indir + "/" + args.indir + "_badfiles.out"
 
@@ -181,10 +181,10 @@ def do_facmds(args, fsa_list, params, dbh=None):
         do_clear( args, fsa_list, dbh )
         executed += 1
     if args.align:
-        do_align( args, fsa_list, f_bad_files, dbh )
+        aligned_fsa_list = do_align( args, fsa_list, _params, f_bad_files, dbh )
         executed += 1
     if args.call:
-        do_call( args, fsa_list, params, dbh )
+        do_call( args, aligned_fsa_list, _params, dbh )
         executed += 1
     if args.plot:
         do_plot( args, fsa_list, dbh )
@@ -193,10 +193,10 @@ def do_facmds(args, fsa_list, params, dbh=None):
         do_dendogram( args, fsa_list, dbh)
         executed += 1
     if args.ladderplot:
-        do_ladderplot( args, fsa_list, dbh )
+        do_ladderplot( args, aligned_fsa_list, dbh )
         executed += 1
     if args.listpeaks is not False:
-        do_listpeaks( args, fsa_list, dbh )
+        do_listpeaks( args, aligned_fsa_list, dbh )
         executed += 1
 
     if executed == 0:
@@ -210,21 +210,30 @@ def do_clear( args, fsa_list, dbh ):
     pass
 
 
-def do_align( args, fsa_list, f_bad_files, dbh ):
-
-    _params = params.Params()
+def do_align( args, fsa_list, _params, f_bad_files, dbh ):
+    """
+    This takes an input list of FSA instances , calls FSA.align for 
+    FSA in the list, and returns a list of good FSAs.
+    """
+    
+    for fsa in fsa_list:
+        print("file: ", fsa[0].filename)
+        
     if args.ladder_rfu_threshold >= 0:
         _params.ladder.min_rfu = args.ladder_rfu_threshold
 
     cerr('I: Aligning size standards...')
 
-    for (fsa, sample_code) in fsa_list:
+    good_fsa = []
+    for (fsa, fsa_index) in fsa_list:
         cverr(3, 'D: aligning FSA %s' % fsa.filename)
         try:
             fsa.align(_params)
+            good_fsa.append( (fsa, fsa_index) )
         except LadderMismatchException:
             f_bad_files.write(("LadderMismatch: %s\n") % fsa.filename)
-            continue
+            
+    return good_fsa
 
 def do_call( args, fsa_list, params, dbh ):
 
@@ -234,7 +243,7 @@ def do_call( args, fsa_list, params, dbh ):
         params.nonladder.min_rfu = args.nonladder_rfu_threshold
 
 
-    for (fsa, sample_code) in fsa_list:
+    for (fsa, fsa_index) in fsa_list:
         cverr(3, 'D: calling FSA %s' % fsa.filename)
         fsa.call(params)
 
@@ -245,7 +254,7 @@ def do_plot( args, fsa_list, dbh ):
 
     from matplotlib import pylab as plt
 
-    for (fsa, sample_code) in fsa_list:
+    for (fsa, fsa_index) in fsa_list:
         for c in fsa.channels:
             plt.plot(c.data)
 
@@ -256,7 +265,7 @@ def do_ladderplot( args, fsa_list, dbh ):
     cerr('I: Creating ladder plot...')
 
     import matplotlib.pyplot as plt
-    for (fsa, sample_code) in fsa_list:
+    for (fsa, fsa_index) in fsa_list:
 
         c = fsa.get_ladder_channel()
 
@@ -284,7 +293,7 @@ def do_dendogram( args, fsa_list, dbh ):
     from fatools.lib.fautil import hcalign
     from matplotlib import pyplot as plt
 
-    for (fsa, sample_code) in fsa_list:
+    for (fsa, fsa_index) in fsa_list:
 
         c = fsa.get_ladder_channel()
         c.scan(params.Params()) # scan first if necessary
@@ -329,7 +338,7 @@ def do_listpeaks( args, fsa_list, dbh ):
         raise RuntimeError("Unknown value for args.peaks_format")
     out_stream.close()
 
-    for (fsa, sample_code) in fsa_list:
+    for (fsa, fsa_index) in fsa_list:
         cverr(3, 'D: calling FSA %s' % fsa.filename)
 
         markers = fsa.panel.data['markers']
@@ -337,25 +346,25 @@ def do_listpeaks( args, fsa_list, dbh ):
         out_stream = open(args.outfile, 'a')
         for channel in fsa.channels:
             if channel.is_ladder():
-                continue
+                color = markers['x/ladder']['filter']
+            else:
+                color = markers['x/'+channel.dye]['filter']
 
-            color = markers["x/"+channel.dye]['filter']
-
-            #cout('Marker => %s | %s [%d]' % (channel.marker.code, channel.dye,
-            #       len(channel.alleles)))
-            #cout("channel has alleles :",len(channel.alleles))
+            if is_verbosity(4):
+                cout('Marker => %s | %s [%d]' % (channel.marker.code, channel.dye,
+                                                 len(channel.alleles)))
+                cout("channel has alleles :",len(channel.alleles))
             i=1
             for p in channel.alleles:
 
                 if args.peaks_format=='standard':
                     out_stream.write('%6s\t%10s\t%3s\t%d\t%d\t%5i\t%3.2f\t%3.2f\n' %
-                                     (sample_code, fsa.filename[:-4], color, p.rtime, p.size, p.height, p.area, p.qscore))
+                                     (fsa_index, fsa.filename[:-4], color, p.rtime, p.size, p.height, p.area, p.qscore))
                 else:
                     out_stream.write('"%s, %i",%s, %f, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f,,\n' %
-                                    #(color, i+1, fsa.filename, size_bp, height,area_s, area_bp, size_s, begin_s, begin_bp, end_s, end_bp, width_s, width_bp))
-                                     (color, i, fsa.filename, p.size, p.height, p.area, -1, p.rtime, -1,-1,-1,-1,-1,-1))
+                                     (color, i, fsa.filename, p.size, p.height, p.area, p.area_bp, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp))
                 i = i+1
-                
+
         out_stream.close()
 
 def open_fsa( args, _params ):
@@ -444,7 +453,6 @@ def open_fsa( args, _params ):
         for fsa_filename in glob.glob(args.indir+"/*.fsa"):
 
             fsa_filename = fsa_filename.strip()
-
             fsa = FSA.from_file(fsa_filename, panel, _params, cache = not args.no_cache)
             # yield (fsa, str(i))
             fsa_list.append( (fsa, str(index)) )

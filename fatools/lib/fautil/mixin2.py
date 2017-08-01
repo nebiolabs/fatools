@@ -1,6 +1,6 @@
 
 from fatools.lib.fautil import algo2 as algo
-from fatools.lib.utils import cout, cerr, cexit
+from fatools.lib.utils import cout, cerr, cexit, is_verbosity
 from fatools.lib import const
 
 from functools import lru_cache
@@ -9,10 +9,6 @@ import attr
 import time
 
 # FA
-
-class LadderMismatchException(Exception):
-    """Raised when number of peaks in ladder channel not equal to number of ladder steps."""
-    pass
 
 class AlleleMixIn(object):
 
@@ -59,63 +55,33 @@ class ChannelMixIn(object):
         return self.alleles
 
     # ChannelMixIn scan method
-    def scan(self, parameters, ladder=None):
-        
+    def scan(self, parameters):
+
+        params = parameters.ladder if self.is_ladder() else parameters.nonladder
+
         if self.status != const.channelstatus.reseted:
             return
         
-        params = parameters.ladder if self.is_ladder() else parameters.nonladder
-        
         alleles = algo.scan_peaks(self, params)
-
-        if len(alleles)==0: return
-        
-        # determine qscore and mark peak type for alleles
-        algo.preannotate_peaks(self, params)
-        
-        if ladder==None:
-            return
-        
-        # get function for call_peaks        
-        ladders = ladder.alleles
-
-        # check the allele method
-        method = parameters.allelemethod
-        
-        if method == const.allelemethod.leastsquare:
-            func = algo.least_square( ladders, self.fsa.z)
-        elif method == const.allelemethod.cubicspline:
-            func = algo.cubic_spline( ladders )
-        elif method == const.allelemethod.localsouthern:
-            func = algo.local_southern( ladders )
-        else:
-            raise RuntimeError
-        
-        #min_rtime = ladders[1].rtime
-        #max_rtime = ladders[-2].rtime
-        
-        min_rtime = params.min_rtime
-        max_rtime = ladders[-1].rtime
-        
-        algo.call_peaks(self, params, func, min_rtime, max_rtime)
-        #algo.bin_peaks(self, params, self.marker)
-        #algo.postannotate_peaks(self, params)
-        
-        #import pprint; pprint.pprint(alleles)
 
 
     def preannotate(self, parameters):
-        pass
+
+        params = parameters.ladder if self.is_ladder() else parameters.nonladder
+
+        # determine qscore and mark peak type for alleles
+        algo.preannotate_peaks(self, params)
 
     # ChannelMixIn align method
-    def align(self, parameters, anchor_pairs=None):
+    def align(self, parameters, ladder=None, anchor_pairs=None):
 
         # sanity checks
         if self.marker.code != 'ladder':
             raise RuntimeError('E: align() must be performed on ladder channel!')
 
-        self.scan( parameters )         # in case this channel hasn't been scanned
-
+        self.scan(parameters)  # in case this channel hasn't been scanned
+        self.preannotate(parameters)
+        
         ladder = self.fsa.panel.get_ladder()
 
         # prepare ladder qcfunc
@@ -140,30 +106,52 @@ class ChannelMixIn(object):
         ladder_sizes = ladder['sizes']
         ladder_sizes.sort()
 
-        if (len(alleles) != len(ladder_sizes)):
-            raise LadderMismatchException( ("alleles not same length as ladder for file: %s!") % fsa.filename)
-
         for allele, ladder_size in zip(alleles, ladder_sizes):
             allele.size = ladder_size
-            
+
+        # check the allele method
+        method = parameters.allelemethod
+
+        if method == const.allelemethod.leastsquare:
+            fsa.allele_fit_func = algo.least_square( alleles, self.fsa.z)
+        elif method == const.allelemethod.cubicspline:
+            fsa.allele_fit_func = algo.cubic_spline( alleles )
+        elif method == const.allelemethod.localsouthern:
+            fsa.allele_fit_func = algo.local_southern( alleles )
+        else:
+            raise RuntimeError
+        
+        #min_rtime = ladders[1].rtime
+        #max_rtime = ladders[-2].rtime
+        fsa.min_rtime = parameters.ladder.min_rtime
+        fsa.max_rtime = parameters.ladder.max_rtime
+    
         #import pprint; pprint.pprint(dpresult.sized_peaks)
         #print(fsa.z)
-        cout('O: Score %3.2f | %5.2f | %d/%d | %s | %5.1f | %s' %
-            (fsa.score, fsa.rss, fsa.nladder, len(ladder['sizes']),
-             result.method, fsa.duration, fsa.filename) )
+        if is_verbosity(4):
+            cout('O: Score %3.2f | %5.2f | %d/%d | %s | %5.1f | %s' %
+                 (fsa.score, fsa.rss, fsa.nladder, len(ladder['sizes']),
+                  result.method, fsa.duration, fsa.filename) )
 
 
     # ChannelMixIn call method
-    def call(self, ladder, parameters=None):
+    def call(self, parameters, ladder):
+
+        params = parameters.ladder if self.is_ladder() else parameters.nonladder
 
         # skip if ladder
         if self.marker.code == 'ladder':
             pass
         
-        if parameters:
-            self.scan( parameters, ladder)  # in case this channel hasn't been scanned
+        self.scan( parameters)  # in case this channel hasn't been scanned
 
-
+        algo.call_peaks(self, params, self.fsa.allele_fit_func,
+                        self.fsa.min_rtime, self.fsa.max_rtime)
+            
+        #algo.bin_peaks(self, params, self.marker)
+        #algo.postannotate_peaks(self, params)
+        
+        #import pprint; pprint.pprint(alleles)
 
 class FSAMixIn(object):
     """
@@ -172,6 +160,7 @@ class FSAMixIn(object):
 
     __slots__ = [   'panel', 'channels', 'excluded_markers', 'filename',
                     'rss', 'z', 'score', 'nladder', 'duration',
+                    'allele_fit_func', 'min_rtime', 'max_rtime'
                 ]
 
     def get_data_stream(self):
@@ -222,8 +211,8 @@ class FSAMixIn(object):
 
     def align(self, parameters=None):
 
-        c = self.get_ladder_channel()
-        c.align( parameters )
+        ladder = self.get_ladder_channel()
+        ladder.align(parameters)
 
     # FSAMixIn call method
     def call(self, parameters):
@@ -231,8 +220,10 @@ class FSAMixIn(object):
         ladder = self.get_ladder_channel()
 
         for c in self.channels:
-            if c.marker.code != 'ladder':
-                c.scan( parameters, ladder)
+            #if c.marker.code != 'ladder':
+            c.scan(parameters)
+            c.preannotate(parameters)
+            c.call(parameters, ladder)
 
     def get_ladder_channel(self):
 
