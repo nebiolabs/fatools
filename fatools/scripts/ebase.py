@@ -5,6 +5,7 @@ import os
 import glob
 import zipfile
 import fatools.scripts.fa as fa
+import time
 
 import psycopg2
 import pysftp
@@ -25,10 +26,15 @@ class MyPeak():
             self.dye, self.size_s, self.size_bp, self.area_s, self.area_bp, self.height )
 
 def main():
+
+    start_time = time.time()
     
     nrecords = 1
     use_db = True
-    trace_dir = "" #"trace-Aug14-2012_primase_100-400nM_CE13531"
+    #trace_dir = "1_and_2_base_extensions" 
+    #trace_dir = "single_base_extension" 
+    #trace_dir = "trace-Mar-22-2010-Aug13-14-23-50-mismatch5" #"trace-Aug14-2012_primase_100-400nM_CE13531"
+    trace_dir = ""
     file_list = ""#"Blank.fsa"
     scp_files = True # only used if use_db = True
     overwrite_output = True
@@ -137,7 +143,7 @@ def main():
                 
     # read from local files instead of database
     else:
-        files['2'] = file_root
+        files['2'] = trace_dir
 
     for key, root_dir in files.items():
 
@@ -145,14 +151,18 @@ def main():
                    '--panel=GS120LIZ',
                    '--ladder_rfu_threshold=0.25',
                    '--nonladder_rfu_threshold=150',
+                   '--nonladder_peak_window=5',
                    '--call',
-                   #'--plot', #'--ladderplot',
+                   #'--ladderplot',
                    '--allelemethod=localsouthern',
                    '--baselinemethod=minimum',
                    '--baselinewindow=51',
                    '--listpeaks',
                    '--peaks_format=peakscanner',
                    '--verbose=0',
+                   #'--plot=B,O',
+                   #'--range=41,47',
+                   #'--range=-15,135',
                    '--indir='+root_dir]
 
         if file_list!="":
@@ -209,6 +219,9 @@ def main():
             else:
                 os.rename(root_dir,"../output/"+root_dir)
 
+    elapsed_time = time.time() - start_time
+    print("elapsed time: ", elapsed_time)
+    
 if __name__ == '__main__':
 
     main()

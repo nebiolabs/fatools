@@ -41,48 +41,18 @@ class Peak(object):
             self.rtime, self.rfu, self.area, self.ertime - self.brtime, self.srtime,
             self.beta, self.theta, self.omega)
 
-@attr.s
-class Channel(object):
-    data = attr.ib()
-    marker = attr.ib()
-    alleles = attr.ib(default=list)
-
-    fsa = attr.ib(default=None)
-
-
-    def scan(self, params, offset=0):
-
-        if self.is_ladder():
-            alleles = scan_peaks(self, params.ladder)
-        else:
-            alleles = scan_peaks(self, params.ladder, offset)
-
-        cverr(1, "# scanning %s: %d peak(s)" % (self.marker, len(alleles)))
-
-        return alleles
-
-
-    def align(self, params):
-
-        if not self.is_ladder():
-            raise RuntimeError('ERR: cannot align non-ladder channel')
-
-        ladders, qcfunc = self.fsa.get_ladder_parameter()
-
-        result = align_peaks(self, params.ladder, ladders, qcfunc)
-
-        self.z = result.z
-        
-def scan_peaks(channel, params, offset=0):
+def scan_peaks(channel, parameters, offset=0):
     """
     """
+
+    params = parameters.ladder if channel.is_ladder() else parameters.nonladder
 
     # check if channel is ladder channel, and adjust expected_peak_number accordingly
     expected_peak_number = params.expected_peak_number
     if channel.is_ladder():
         expected_peak_number = len(channel.fsa.panel.get_ladder()['sizes'])
 
-    initial_peaks = find_peaks(channel.data, params, offset, expected_peak_number)
+    initial_peaks = find_peaks(channel, params, offset, expected_peak_number)
 
     # create alleles based on these peaks
     alleles = []
@@ -318,13 +288,17 @@ def align_peaks(channel, params, ladder, anchor_pairs=None):
 
 # helper functions
 
-def find_raw_peaks(data, params, offset, expected_peak_number=0):
+def find_raw_peaks(channel, params, offset, expected_peak_number=0):
+    
     """
     params.min_dist
     params.norm_thres
     params.min_rfu
     params.max_peak_number
     """
+
+    data = channel.data
+    
     #print("expected:", expected_peak_number)
     # cut and pad data to overcome peaks at the end of array
     obs_data = np.append(data[offset:], [0,0,0])
@@ -339,7 +313,47 @@ def find_raw_peaks(data, params, offset, expected_peak_number=0):
     elif False:
         indices = indexes( obs_data, params.norm_thres, params.min_dist)
 
-    indices = indexes( obs_data, 1e-7, params.min_dist)
+    
+    if params.peakwindow==0 or params.peakdegree<1:
+        indices = indexes( obs_data, 1e-7, params.min_dist)
+        channel.firstderiv = np.hstack([np.diff(obs_data),0.]).tolist()
+        
+    else:
+
+        # do a fit in a sliding window of size given by peakwindow
+        # to a polynomial of degree given by peakdegree
+        firstderiv_ = []
+        winsize = int(params.peakwindow/2)*2+1 # make sure window is odd
+        degree = params.peakdegree
+
+        data_np = np.asarray(data)
+
+        
+        firstderiv = signal.savgol_filter(data_np, winsize, degree, deriv=1)
+        
+        channel.firstderiv = firstderiv.tolist()
+
+        thres = 1e-7*(np.max(data)-np.min(data))+np.min(data)
+
+        indices = []
+        last = False
+        for i in range(len(firstderiv)):
+            current = (firstderiv[i]>0)
+            if last==True and current==False:
+                if data[i]>last_data:
+                    indices.append(i)
+                else:
+                    indices.append(i-1)
+            last_data = data[i]
+            last = current
+            
+        """import matplotlib.pyplot as plt
+        plt.plot(data, label="data")
+        plt.plot(channel.firstderiv, 'x',label="first deriv")
+        plt.plot((0.,6000.),(0.,0.),'--')
+        plt.legend()
+        plt.show()"""
+
     cverr(5, '## indices: %s' % str(indices))
     cverr(3, '## raw indices: %d' % len(indices))
 
@@ -375,16 +389,18 @@ def find_raw_peaks(data, params, offset, expected_peak_number=0):
     return peaks
 
 
-def find_peaks(data, params, offset=0, expected_peak_number=0):
+def find_peaks(channel, params, offset=0, expected_peak_number=0):
 
-    peaks = find_raw_peaks(data, params, offset, expected_peak_number)
+    data = channel.data
+    
+    peaks = find_raw_peaks(channel, params, offset, expected_peak_number)
 
     # check for any peaks
     if not peaks:
         return peaks
 
     # measure peaks parameters
-    measure_peaks(peaks, data, offset)
+    measure_peaks(peaks, channel, offset)
 
     #import pprint; pprint.pprint(peaks)
 
@@ -402,12 +418,20 @@ def find_peaks(data, params, offset=0, expected_peak_number=0):
     return peaks
 
 
-def measure_peaks(peaks, data, offset=0):
+def measure_peaks(peaks, channel, offset=0):
 
+    data = channel.data
+    firstderiv = channel.firstderiv
+    
     (q50, q70) = np.percentile( data[offset:], [50, 75] )
     for p in peaks:
-        p.area, p.brtime, p.ertime, p.srtime, ls, rs = calculate_area( data,
-                                    p.rtime, 5e-2, q50 )
+        if False:
+            p.area, p.brtime, p.ertime, p.srtime, ls, rs = \
+                calculate_area( data, p.rtime, 5e-2, q50 )
+        else:
+            p.area, p.brtime, p.ertime, p.srtime, ls, rs = \
+                calculate_area_firstderiv( data, firstderiv, p.rtime )
+            
         p.wrtime = p.ertime - p.brtime
         p.beta = p.area / p.rfu
         if p.wrtime == 0:
@@ -460,6 +484,51 @@ def half_area(y, threshold, baseline):
         index += 1
     if edge >= old_edge:
         shared = True
+    index -= 1
+
+    return area, index, shared
+
+def calculate_area_firstderiv(y, dy, t):
+    """ return (area, brtime, ertime, srtime)
+        area: area
+        brtime: begin rtime
+        ertime: end rtime
+    """
+    
+    # right area
+    data = y[t:]
+    firstderiv = dy[t:]
+    r_area, ertime, r_shared = half_area_firstderiv(data, firstderiv, True)
+
+    # left area
+    data = y[:t+1][::-1]
+    firstderiv = dy[:t+1][::-1]
+    
+    l_area, brtime, l_shared = half_area_firstderiv(data, firstderiv, False)
+
+
+    return ( l_area + r_area - y[t], t - brtime, ertime + t, math.log2(r_area / l_area),
+                l_shared, r_shared )
+
+
+def half_area_firstderiv(y, firstderiv, decreasing):
+    """ return (area, ertime, shared_status)
+    """
+
+    shared = False
+    area = y[0]
+    dy = firstderiv[0]
+
+    limit = len(y)
+
+    index = 1
+    pos = ( firstderiv[index] < 0. ) if decreasing else ( firstderiv[index] > 0. )
+
+    while ( pos and index < limit ):
+        area += y[index]
+        index += 1
+        pos = ( firstderiv[index] < 0. ) if decreasing else ( firstderiv[index] > 0. )  
+
     index -= 1
 
     return area, index, shared
@@ -918,6 +987,27 @@ def local_southern( ladder_alleles ):
     x = [ p.rtime for p in ladder_allele_sorted ]
     y = [ p.size for p in ladder_allele_sorted ]
 
+    def southern3(xp, yp, rtime):
+
+        x1, x2, x3 = xp[0], xp[1], xp[2]
+        y1, y2, y3 = yp[0], yp[1], yp[2]
+
+        L_denom = x1*(y2-y3) - x2*(y1-y3) + x3*(y1-y2)
+        if abs(L_denom)<1.e-7:
+            # return linear fit instead of local southern
+            m = (y1-y2)/(x1-x2)
+            b = y1 - m*x1
+            size = m*rtime + b
+
+        else:
+            L_num = x1*y1*(y2-y3) - x2*y2*(y1-y3) + x3*y3*(y1-y2)
+            L0 = L_num/L_denom
+            M0 = (x1*(y1-L0) - x3*(y3-L0))/(y1-y3)
+            c  = (y1 - L0) * (x1 - M0)
+            size = c/(rtime - M0) + L0
+
+        return size
+    
     def _f( rtime ):
         """ return (size, deviation)
             deviation is calculated as delta square between curve1 and curve2
@@ -925,31 +1015,128 @@ def local_southern( ladder_alleles ):
 
         idx = ladder_allele_sorted.bisect_key_right( rtime )
 
+        # special case for points to left or right of ladder steps
+        if (idx==0):
+            z = np.polyfit( x[0:4], y[0:4], 2)
+            min_score = .5 * min( z.qscore for z in ladder_allele_sorted[0:3] )
+            return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
+        if (idx==len(x)):
+            z = np.polyfit( x[-4:], y[-4:], 2)
+            min_score = .5 * min( z.qscore for z in ladder_allele_sorted[-3:] )
+            return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
+            
         # left curve
-        if (idx>1 and idx<len(x)-1):
-            z1 = np.polyfit( x[idx-2:idx+1], y[idx-2:idx+1], 2)
+        if (idx>1 and idx<len(x)):
+            size1 = southern3(x[idx-2:idx+1], y[idx-2:idx+1], rtime)
             min_score1 = min( z.qscore for z in ladder_allele_sorted[idx-2:idx+1] )
-        else:
-            z1 = np.polyfit( x[0:3], y[0:3], 1)
+        else: # these should be only idx==1, so we do left curve from 1st 3 points
+            size1 = southern3(x[0:3], y[0:3], rtime)
             min_score1 = .5 * min( z.qscore for z in ladder_allele_sorted[0:3] )
-            
-        size1 = np.poly1d( z1 )(rtime)           
-            
+
         # right curve
         if (idx<len(x)-2 and idx>0):
-            z2 = np.polyfit( x[idx-1:idx+2], y[idx-1:idx+2], 2)
+            size2 = southern3(x[idx:idx+3], y[idx:idx+3], rtime)
             min_score2 = min( x.qscore for x in ladder_allele_sorted[idx-1:idx+2] )
-        else:
-            z2 = np.polyfit(x[-3:], y[-3:], 1)
+        else: # these should be only idx==len(x)-1, so we do right curve from last 3 points
+            size2 = southern3(x[-3:], y[-3:], rtime)
             min_score2 = .5 * min( z.qscore for z in ladder_allele_sorted[-3:] )
-
-        size2 = np.poly1d( z2 )(rtime)
 
         return ( (size1 + size2)/2, (size1 - size2) ** 2, (min_score1 + min_score2)/2,
                 const.allelemethod.localsouthern)
 
     return _f
 
+
+def mark_overlap_peaks(channels, params):
+
+    # checking overlaps against channel !
+    for channel in channels:
+        for channel_r in channels:
+            if channel == channel_r:
+                continue
+            
+            for p in channel.alleles:
+                if p.type == const.peaktype.noise:
+                    continue
+                
+                if p.ertime - p.brtime < 3:
+                    brtime = p.brtime
+                    ertime = p.ertime
+                elif p.ertime - p.brtime < 6:
+                    brtime = p.brtime + 1
+                    ertime = p.ertime - 1
+                else:
+                    brtime = p.brtime + 3
+                    ertime = p.ertime - 3
+
+                if brtime > p.rtime: brtime = p.rtime
+                if ertime < p.rtime: ertime = p.rtime
+
+                brtime = max(0, brtime)
+                ertime = min(len(channel.data), len(channel_r.data), ertime)
+
+                #cerr('checking %d | %s with channel %s' % (p.rtime, channel.dye,
+                #            channel_r.dye))
+
+                if ( channel.data[brtime] < channel_r.data[brtime] and
+                     channel.data[ertime] < channel_r.data[ertime] and
+                     p.height < channel_r.data[p.rtime] ):
+
+                    # check how much is the relative height of this particular peak
+                    rel_height = p.height / channel_r.data[p.rtime]
+                    if rel_height > 1.0:
+                        continue
+
+                    (o_state, o_ratio, o_sym) = calc_overlap_ratio( channel.data,
+                                                                    channel_r.data, p.rtime,
+                                                                    brtime, ertime )
+
+                    # if not really overlap, just continue reiteration
+                    if not o_state:
+                        continue
+
+                    if is_verbosity(4):
+                        print('peak: %d | %s | %s <> %f | %f | %f' % (p.rtime, channel.dye, p.type, rel_height, o_ratio, o_sym))
+                    if rel_height < 0.15:
+                        if p.type != const.peaktype.noise:
+                            p.type = const.peaktype.overlap
+                            if is_verbosity(4):
+                                print('peak: %d | %s -> overlap' % (p.rtime, channel.dye))
+                        p.qscore -= 0.10
+                        continue
+
+                    if ((rel_height < params.overlap_height_threshold and -0.5 < o_sym < 0.5) or
+                        (o_ratio < 0.25 and -1.5 < o_sym < 1.5 ) or
+                        (o_ratio < 0.75 and -0.5 < o_sym < 0.5 )):
+                        if p.type != const.peaktype.noise:
+                            p.type = const.peaktype.overlap
+                            if is_verbosity(4):
+                                print('peak: %d | %s -> overlap' % (p.rtime, channel.dye))
+                        p.qscore -= 0.10
+                        continue
+
+def calc_overlap_ratio(data, data_r, rtime, brtime, ertime):
+    """ calculate the difference ratio of overlapping area to the left and right area
+        of rtime
+        return ( boolean, total_ratio, log(right_ratio/left_ratio) )
+    """
+
+    lr = rr = 0.0
+    lc = rc = 0
+    for x in range(brtime, rtime+1):
+        if data[x] > data_r[x]:
+            return (False, 0, 0)
+        lr += data[x]/data_r[x]
+        lc += 1
+    for x in range(rtime, ertime+1):
+        if data[x] > data_r[x]:
+            return (False, 0, 0)
+        rr += data[x]/data_r[x]
+        rc += 1
+    lrc = lr / lc
+    rrc = rr / rc
+
+    return (True, (lrc + rrc)/2, math.log2(rrc/lrc))
 
 ## this is a new algorithm and steps to perform peak analysis
 ##

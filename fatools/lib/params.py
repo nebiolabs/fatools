@@ -38,6 +38,8 @@ class ScanningParameter(object):
         self.stutter_range = 3.5
         self.artifact_ratio = 0.8
 
+        self.peakdegree = 3
+        self.peakwindow = 5
         self.norm_thres = 0.05
         self.min_dist = 10
         self.min_rfu = 20 # if this is a fraction < 1, assumes a relative min (relative to tallest peak in channel)
@@ -71,6 +73,8 @@ class LadderScanningParameter(ScanningParameter):
         self.width_ratio = 5000
         self.expected_peak_number = 36
 
+        self.peakdegree = 3
+        self.peakwindow = 15
         self.norm_thres = 0.1
         self.min_rfu = 3 # if this is a fraction < 1, assumes a relative min (relative to tallest peak in channel)
         self.min_dist = 12

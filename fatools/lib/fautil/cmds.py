@@ -46,9 +46,6 @@ def init_argparser(parser=None):
     p.add_argument('--annotate', default=False, action='store_true',
             help = 'annotate non-ladder peaks')
 
-    p.add_argument('--plot', default=False, action='store_true',
-            help = 'plot normalized trace')
-
     p.add_argument('--ladderplot', default=False, action='store_true',
             help = 'plot ladder peaks and calibration curve')
 
@@ -61,6 +58,12 @@ def init_argparser(parser=None):
     p.add_argument('--peaks_format', default="standard",
                    help = "format for peaks output file (standard, peakscanner)")
     
+    p.add_argument('--plot', default="", type=str,
+            help = 'plot trace (delimited list input)')
+
+    p.add_argument('--range', default="", type=str,
+            help = 'range for plotting trace (delimited list input)')
+
     # semi-mandatory
 
     p.add_argument('--panel', default="",
@@ -99,6 +102,9 @@ def init_argparser(parser=None):
 
     p.add_argument('--nonladder_rfu_threshold', default=-1, type=float,
                    help='nonladder rfu threshold')
+
+    p.add_argument('--nonladder_peak_window', default=-1, type=float,
+                   help='size of window (in scan time units) used to calcuate first derivatives')
 
     p.add_argument('--allelemethod', default='', type=str,
                    help='allele method (leastsquare, cubicspline, localsouthern)')
@@ -175,7 +181,9 @@ def do_facmds(args, fsa_list, _params, dbh=None):
     bad_files_filename = args.indir + "/" + args.indir + "_badfiles.out"
 
     f_bad_files = open(bad_files_filename,'w')
-    
+
+    args.plotrange = []
+
     executed = 0
     if args.clear:
         do_clear( args, fsa_list, dbh )
@@ -186,7 +194,10 @@ def do_facmds(args, fsa_list, _params, dbh=None):
     if args.call:
         do_call( args, aligned_fsa_list, _params, dbh )
         executed += 1
-    if args.plot:
+    if args.plot is not "":
+        args.plotlist = [item for item in args.plot.split(',')]
+        if args.range is not "":
+            args.plotrange = [int(item) for item in args.range.split(',')]
         do_plot( args, fsa_list, dbh )
         executed += 1
     if args.dendogram:
@@ -198,7 +209,6 @@ def do_facmds(args, fsa_list, _params, dbh=None):
     if args.listpeaks is not False:
         do_listpeaks( args, aligned_fsa_list, dbh )
         executed += 1
-
     if executed == 0:
         cerr('W: please provide a relevant command')
     else:
@@ -242,23 +252,93 @@ def do_call( args, fsa_list, params, dbh ):
     if args.nonladder_rfu_threshold >= 0:
         params.nonladder.min_rfu = args.nonladder_rfu_threshold
 
+    if args.nonladder_peak_window >0 :
+        params.nonladder.peakwindow = args.nonladder_peak_window
 
     for (fsa, fsa_index) in fsa_list:
         cverr(3, 'D: calling FSA %s' % fsa.filename)
         fsa.call(params)
 
 
-def do_plot( args, fsa_list, dbh ):
+def do_plot(args, fsa_list, dbh):
 
     cerr('I: Creating plot...')
 
     from matplotlib import pylab as plt
+    plt.rcParams['figure.figsize'] = 12, 9
 
     for (fsa, fsa_index) in fsa_list:
-        for c in fsa.channels:
-            plt.plot(c.data)
 
-        plt.show()
+        markers = fsa.panel.data['markers']
+
+        left = 1000
+        right = 6000
+
+        # get conversion from s.t.u. to b.p.
+        if args.plotrange:
+            import numpy as  np
+            fit = np.poly1d(fsa.z)
+
+            left = 1000
+            while (fit(left) < args.plotrange[0]):
+                left += 20
+            left -= 20
+
+            right = 6000
+            while (fit(right) > args.plotrange[1]):
+                right -= 20
+            right += 20
+
+        if args.plotlist[0] == 'all' or len(args.plotlist) > 0:
+            plt.figure()
+
+        ipeak = 0
+        for channel in fsa.channels:
+            if channel.is_ladder():
+                color = markers['x/ladder']['filter']
+            else:
+                color = markers['x/' + channel.dye]['filter']
+
+            if args.plotlist[0] != 'all' and len(args.plotlist) == 0:
+                plt.figure()
+            # see if color is in list of colors to plot
+            if color not in args.plotlist and args.plotlist[0] != 'all':
+                continue
+
+            plt.plot(channel.data, label="data '" + color + "'")
+            # plt.plot(channel.firstderiv,label="1st deriv")
+            plt.plot((0., 6000.), (0., 0.), '--')
+            plt.xlim(left, right)
+
+            for p in channel.alleles:
+
+                # label peak
+                y = p.height
+                if p.height < 250 or p.type == 'noise':
+                    continue
+
+                x = p.rtime
+                label = ("%2.1f b.p. - %s (h=%i)" % (p.size, p.type, p.height))
+                plt.annotate(label, xy=(x, y), xytext=(-20, 10 * (ipeak % 3 + 1)),
+                             textcoords='offset points', ha='right', va='bottom',
+                             # bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
+                             arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+                ipeak += 1
+
+            plt.xlabel('allele size (scan time units)')
+            plt.ylabel('peak height (rel. fluorescence units)')
+            plt.title(fsa.filename, y=1.08)
+            plt.legend()
+            # plt.show()
+            if args.plotlist[0] != 'all' and len(args.plotlist) == 0:
+                plt.savefig(fsa.filename + "_" + color + ".png")
+                plt.close()
+
+        if args.plotlist[0] == 'all' or len(args.plotlist) > 0:
+            plt.show()
+            plt.savefig(fsa.filename + ".png")
+            plt.close()
+
 
 def do_ladderplot( args, fsa_list, dbh ):
 
@@ -331,7 +411,7 @@ def do_listpeaks( args, fsa_list, dbh ):
     if args.peaks_format=='standard':
         out_stream.write('SAMPLE\tFILENAME   \tDYE\tRTIME\tSIZE\tHEIGHT\tAREA\tSCORE\n')
     elif args.peaks_format == 'peakscanner':
-        out_stream.write("Dye/Sample Peak,Sample File Name,Size,Height,Area in Point,Area in BP,Data Point,Begin Point,")
+        out_stream.write("Dye/Sample Peak,Sample File Name,Type,Size,Height,Area in Point,Area in BP,Data Point,Begin Point,")
         out_stream.write("Begin BP,End Point,End BP,Width in Point,Width in BP,User Comments,User Edit\n")
 
     else:
@@ -361,8 +441,8 @@ def do_listpeaks( args, fsa_list, dbh ):
                     out_stream.write('%6s\t%10s\t%3s\t%d\t%d\t%5i\t%3.2f\t%3.2f\n' %
                                      (fsa_index, fsa.filename[:-4], color, p.rtime, p.size, p.height, p.area, p.qscore))
                 else:
-                    out_stream.write('"%s, %i",%s, %f, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f,,\n' %
-                                     (color, i, fsa.filename, p.size, p.height, p.area, p.area_bp, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp))
+                    out_stream.write('"%s, %i",%s, %s, %f, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f,,\n' %
+                                     (color, i, fsa.filename, p.type, p.size, p.height, p.area, p.area_bp, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp))
                 i = i+1
 
         out_stream.close()

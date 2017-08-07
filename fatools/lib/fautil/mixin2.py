@@ -57,12 +57,10 @@ class ChannelMixIn(object):
     # ChannelMixIn scan method
     def scan(self, parameters):
 
-        params = parameters.ladder if self.is_ladder() else parameters.nonladder
-
         if self.status != const.channelstatus.reseted:
             return
         
-        alleles = algo.scan_peaks(self, params)
+        alleles = algo.scan_peaks(self, parameters)
 
 
     def preannotate(self, parameters):
@@ -220,9 +218,12 @@ class FSAMixIn(object):
         ladder = self.get_ladder_channel()
 
         for c in self.channels:
-            #if c.marker.code != 'ladder':
             c.scan(parameters)
             c.preannotate(parameters)
+
+        algo.mark_overlap_peaks(self.channels, parameters.nonladder)
+        
+        for c in self.channels:
             c.call(parameters, ladder)
 
     def get_ladder_channel(self):

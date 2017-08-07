@@ -26,10 +26,10 @@ def main():
     plt.rcParams['figure.figsize'] = 12, 9
 
 
-    #(dirname, dirnames, filenames) = os.walk("../output")
-    os.chdir("../output")
+    os.chdir("../output/")
+    
     dirnames = glob.glob("*")
-
+    
     delta_hists_info = [ [ 'delta_s',      'Delta(size_s)',      8,   -4,    4],
                          [ 'delta_bp',     'Delta(size_bp)',     8,  -40,   40],
                          [ 'delta_h',      'Delta(height)',     20, -200, 1800],
@@ -48,7 +48,15 @@ def main():
                              [ 's_fa_matched',     'size_s FA (matched)',     60, 0,  6000 ],
                              [ 's_ps_matched',     'size_s PS (matched)',     60, 0,  6000 ],
                              [ 'bp_fa_matched',    'size_bp FA (matched)',    60, -100,  6000 ],
-                             [ 'bp_ps_matched',    'size_bp PS (matched)',    60, -100,  6000 ] ]
+                             [ 'bp_ps_matched',    'size_bp PS (matched)',    60, -100,  6000 ],
+                             [ 'area_s_fa_matched',  'area_s FA (matched)',     60, 0,  60000 ],
+                             [ 'area_s_ps_matched',  'area_s PS (matched)',     60, 0,  60000 ],
+                             [ 'area_bp_fa_matched', 'area_bp FA (matched)',    60, 0,  60000 ],
+                             [ 'area_bp_ps_matched', 'area_bp PS (matched)',    60, 0,  60000 ],
+                             [ 'h_fa_matched',       'height FA (matched)',    60, 0,  200000 ],
+                             [ 'h_ps_matched',       'height PS (matched)',    60, 0,  200000 ],
+                             [ 'rel_h_fa_matched', 'height rel. to highest peak - FA (matched)', 20, 0, 1 ],
+                             [ 'rel_h_ps_matched', 'height rel. to highest peak - PS (matched)', 20, 0, 1 ] ]
     
     data = MyData()
     for h in delta_hists_info:
@@ -58,7 +66,7 @@ def main():
     for h in single_alg_hists_info:
         data.add_array('B', h[0], h[1]+" (non-ladder)", h[2], h[3], h[4])
         data.add_array('O', h[0], h[1]+" (ladder)",     h[2], h[3], h[4])
-        
+
     for dir in dirnames:
 
         print("dir: ", dir)
@@ -114,18 +122,23 @@ def main():
     
     data.plot_overlay_histograms( [ ('s_fa', 's_ps', 'peak size (s.t.u.)', 's_both.png'),
                                     ('rel_h_fa', 'rel_h_ps', 'relative height', 'rel_h_both.png') ] )
-    
-    data.plot_correlations( [ ('s_fa_matched', 's_ps_matched', 's_corr.png'),
-                              ('bp_fa_matched', 'bp_ps_matched', 'bp_corr.png') ] )
+
+    data.plot_correlations( [ ('s_ps_matched', 's_fa_matched', 's_corr.png'),
+                              ('bp_ps_matched', 'bp_fa_matched', 'bp_corr.png'),
+                              ('area_s_ps_matched', 'area_s_fa_matched', 'area_s_corr.png'),
+                              ('area_bp_ps_matched', 'area_bp_fa_matched', 'area_bp_corr.png'),
+                              ('h_ps_matched', 'h_fa_matched', 'h_corr.png'),
+                              ('rel_h_ps_matched', 'rel_h_fa_matched', 'rel_h_corr.png') ] )
 
     
 def fill_data_arrays(peak_info_nl, peak_info_la, data):
 
-    max_ps = max_fa = {}
+    max_ps = {}
+    max_fa = {}
     max_ps['B'] = peak_info_nl.max_height_ps
     max_fa['B'] = peak_info_nl.max_height_fa
     max_ps['O'] = peak_info_la.max_height_ps
-    max_ps['O'] = peak_info_la.max_height_fa
+    max_fa['O'] = peak_info_la.max_height_fa
 
     for dye in ['B', 'O']:
         data.get_array('max_h_ps', dye).append(max_ps[dye])
@@ -152,6 +165,18 @@ def fill_data_arrays(peak_info_nl, peak_info_la, data):
 
         data.get_array('bp_fa_matched', dye).append(fa.size_bp)
         data.get_array('bp_ps_matched', dye).append(ps.size_bp)
+
+        data.get_array('area_s_fa_matched', dye).append(fa.area_s)
+        data.get_array('area_s_ps_matched', dye).append(ps.area_s)
+
+        data.get_array('area_bp_fa_matched', dye).append(fa.area_bp)
+        data.get_array('area_bp_ps_matched', dye).append(ps.area_bp)
+
+        data.get_array('h_fa_matched', dye).append(fa.height)
+        data.get_array('h_ps_matched', dye).append(ps.height)
+
+        data.get_array('rel_h_fa_matched', dye).append(relheight_fa)
+        data.get_array('rel_h_ps_matched', dye).append(relheight_ps)
 
         data.get_array('delta_s', dye).append(fa.size_s - ps.size_s)
         data.get_array('delta_h', dye).append(fa.height  - ps.height)
@@ -399,6 +424,10 @@ class MyData():
             xy_line = (max(min(arr1),min(arr2)), min(max(arr1),max(arr2)))
             
             ax.plot(xy_line, xy_line, 'r-', label='y=x', linewidth=0.5)
+
+            if pngfilename=='bp_corr.png':
+                x = [ 15, 20, 25, 35, 50, 62, 80, 110, 120 ]
+                ax.plot(x,x, 'bx', label='ladder sizes', linewidth=.5, markersize=12)
             
             #plt.legend()
             plt.savefig(pngfilename)

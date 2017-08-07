@@ -84,6 +84,8 @@ class Channel(ChannelMixIn):
 
         self.alleles = []
 
+        self.firstderiv = []
+        
         self.assign()
 
 
