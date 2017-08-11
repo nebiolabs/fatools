@@ -10,32 +10,21 @@ import time
 import psycopg2
 import pysftp
 
-class MyPeak():
+# additional info about test from database to write to separate output file
+file_var_names = ["id", "submission_date", "operator_id", "data_file_name", "peaks_table_file_name",
+                  "experiment_type", "excluded", "peak_th", "bin_selection", "flag_th"]
 
-    def __init__(self, dye, size_s, size_bp, area_s, area_bp, height):
-
-        self.dye     = dye
-        self.size_s  = size_s
-        self.size_bp = size_bp
-        self.area_s  = area_s
-        self.area_bp = area_bp
-        self.height  = height
-
-    def __repr__(self):
-        return "<P: dye %3s | size_s %3d | size_bp %4d | area_s %3d | area_bp %4d | height %5d >" % (
-            self.dye, self.size_s, self.size_bp, self.area_s, self.area_bp, self.height )
 
 def main():
 
     start_time = time.time()
     
-    nrecords = 1
+    nrecords = 40
     use_db = True
-    #trace_dir = "1_and_2_base_extensions" 
-    #trace_dir = "single_base_extension" 
-    #trace_dir = "trace-Mar-22-2010-Aug13-14-23-50-mismatch5" #"trace-Aug14-2012_primase_100-400nM_CE13531"
+
     trace_dir = ""
-    file_list = ""#"Blank.fsa"
+    file_list = ""
+
     scp_files = True # only used if use_db = True
     overwrite_output = True
     
@@ -73,10 +62,13 @@ def main():
              "LIMIT " + str(nrecords) + " " + \
              "OFFSET 20 ";"""
 
-        ex = "SELECT id, submission_date, data_file_name, peaks_table_file_name " + \
-             "FROM ce_experiments " + \
-             "LIMIT " + str(nrecords) + " " + \
-             "OFFSET 20 ";
+        ex = "SELECT "
+        for file_var_name in file_var_names:
+            ex += file_var_name + ", "
+        ex = ex[:-2] + " " # remove comma
+        ex += "FROM ce_experiments " + \
+              "LIMIT " + str(nrecords) + " " + \
+              "OFFSET 20 ";
 
         cur.execute(ex)
         rows = cur.fetchall()
@@ -90,10 +82,14 @@ def main():
 
             if done: break
 
-            id, submission_date, zipped_files, peaks_table_file_name = row[0], row[1], row[2], row[3]
-            file_root = zipped_files[:-4]
+            file_vars = {}
+            for i in range(len(file_var_names)):
+                file_vars[file_var_names[i]] = row[i]
 
-            print("submission date: ", submission_date)
+            id = file_vars['id']
+            zipped_files = file_vars['data_file_name']
+            peaks_table_file_name = file_vars['peaks_table_file_name']
+            file_root = zipped_files[:-4]
 
             if file_root == "Archive": # skip these for now... the script doesn't like multiple directories with the same name
                 continue
@@ -115,13 +111,22 @@ def main():
                 full_zipped_files_name = zipped_files
                 sftp.get(full_peaks_table_file_name)
                     
+                
+            # create output with info about test
+            f = open(file_root+"_info.txt", 'w')
+            for key, item in file_vars.items():
+                print("key, item: ", key,  item)
+                f.write("%s: %s\n" % (key, str(item)))
+            f.close()
+            print("made info, cwd: ", os.getcwd())
 
             if not os.path.isdir(file_root):
                 os.makedirs(file_root)
                 os.chdir(file_root)
                 os.rename("../"+zipped_files,zipped_files)
                 os.rename("../"+peaks_table_file_name,peaks_table_file_name)
-                    
+                os.rename("../"+file_root+"_info.txt",file_root+"_info.txt")
+                
                 with zipfile.ZipFile(full_zipped_files_name) as zip_ref:
                     zip_ref.extractall(".")
                 if scp_files:
@@ -138,9 +143,11 @@ def main():
                 os.chdir("..")
             files[id] = file_root
 
+            print("file_root: ", file_root)
+
         if scp_files:
             sftp.close()
-                
+
     # read from local files instead of database
     else:
         files['2'] = trace_dir
@@ -149,7 +156,8 @@ def main():
 
         fa_args = ['--align',
                    '--panel=GS120LIZ',
-                   '--ladder_rfu_threshold=0.25',
+                   '--ladder_rfu_ratio_threshold=0.2',
+                   '--ladder_rfu_threshold=500',
                    '--nonladder_rfu_threshold=150',
                    '--nonladder_peak_window=5',
                    '--call',
@@ -160,8 +168,8 @@ def main():
                    '--listpeaks',
                    '--peaks_format=peakscanner',
                    '--verbose=0',
-                   #'--plot=B,O',
-                   #'--range=41,47',
+                   #'--plot=O',
+                   #'--range=1450, 1525',
                    #'--range=-15,135',
                    '--indir='+root_dir]
 
@@ -198,7 +206,7 @@ def main():
                     print("keeping bad file ",fsa_filename)
 
             # copy ebase.py and params.py to output directory
-            print("cwd: ", os.getcwd())
+
             import shutil
             shutil.copy("../ebase.py",".")
             shutil.copy("../../lib/params.py", ".")

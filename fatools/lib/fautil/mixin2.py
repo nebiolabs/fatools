@@ -13,8 +13,8 @@ import time
 class AlleleMixIn(object):
 
     def __repr__(self):
-        return "<A: %3d | %4d | %5d | %2d | %+3.1f | %4.1f | %5.1f | %6d | %4.2f >" % (
-                    self.size, self.rtime, self.rfu, self.wrtime,
+        return "<A: %7s | %3d | %4d | %5d | %2d | %+3.1f | %4.1f | %5.1f | %6d | %4.2f >" % (
+                    self.type, self.size, self.rtime, self.rfu, self.wrtime,
                     self.srtime, self.beta, self.theta, self.omega, self.dev
         )
 
@@ -48,11 +48,14 @@ class ChannelMixIn(object):
             self.marker = marker
 
 
-    def get_alleles(self):       
+    def get_alleles(self, broad_peaks_only=True):       
         if self.status == const.channelstatus.reseted:
             # create alleles first
             raise RuntimeError('E: channel needs to be scanned first')
-        return self.alleles
+        if broad_peaks_only:
+            return [ allele for allele in self.alleles if allele.type=='broad' ]
+        else:
+            return self.alleles
 
     # ChannelMixIn scan method
     def scan(self, parameters):
@@ -77,9 +80,6 @@ class ChannelMixIn(object):
         if self.marker.code != 'ladder':
             raise RuntimeError('E: align() must be performed on ladder channel!')
 
-        self.scan(parameters)  # in case this channel hasn't been scanned
-        self.preannotate(parameters)
-        
         ladder = self.fsa.panel.get_ladder()
 
         # prepare ladder qcfunc
@@ -141,8 +141,6 @@ class ChannelMixIn(object):
         if self.marker.code == 'ladder':
             pass
         
-        self.scan( parameters)  # in case this channel hasn't been scanned
-
         algo.call_peaks(self, params, self.fsa.allele_fit_func,
                         self.fsa.min_rtime, self.fsa.max_rtime)
             
@@ -157,9 +155,14 @@ class FSAMixIn(object):
     """
 
     __slots__ = [   'panel', 'channels', 'excluded_markers', 'filename',
-                    'rss', 'z', 'score', 'nladder', 'duration',
-                    'allele_fit_func', 'min_rtime', 'max_rtime'
+                    'date', 'rss', 'z', 'score', 'nladder', 'duration',
+                    'allele_fit_func', 'min_rtime', 'max_rtime', 'scan_done',
+                    'align_done'
                 ]
+
+    def __init__(self):
+        self.scan_done = False
+
 
     def get_data_stream(self):
         """ return stream of data """
@@ -195,7 +198,7 @@ class FSAMixIn(object):
 
 
     def create_channels(self, params):
-        cerr('I: Generating channels for %s' % self.filename)
+        if is_verbosity(4): cerr('I: Generating channels for %s' % self.filename)
         trace = self.get_trace()
         trace_channels = algo.separate_channels(trace, params)
         for tc in trace_channels:
@@ -206,8 +209,24 @@ class FSAMixIn(object):
             self.add_channel(channel)
             #channel.status = const.channelstatus.reseted
 
+    # FSAMixIn scan method
+    def scan(self, parameters):
 
+        if self.scan_done: return
+
+        for c in self.channels:
+            c.scan(parameters)
+            c.preannotate(parameters)
+
+        algo.mark_overlap_peaks(self.channels, parameters.nonladder)
+
+        self.scan_done = True
+
+
+    # FSAMixIn align method
     def align(self, parameters=None):
+
+        self.scan(parameters)
 
         ladder = self.get_ladder_channel()
         ladder.align(parameters)
@@ -217,11 +236,7 @@ class FSAMixIn(object):
 
         ladder = self.get_ladder_channel()
 
-        for c in self.channels:
-            c.scan(parameters)
-            c.preannotate(parameters)
-
-        algo.mark_overlap_peaks(self.channels, parameters.nonladder)
+        self.scan(parameters)
         
         for c in self.channels:
             c.call(parameters, ladder)

@@ -14,7 +14,6 @@ class ZFunc(object):
         """
 
 class ZFunc(object):
-
     def __init__(self, peaks, sizes, anchor_pairs, estimate=False):
         """
         peaks, sizes and anchor_pairs must be in ascending order
@@ -86,6 +85,8 @@ class ZFunc(object):
 
         # prepare z function
         f = np.poly1d(z)
+
+        # get pairs that fit the given function
         pairs = pair_f(f, self.rtimes, self.sizes, self.similarity, deviation=True)
 
 

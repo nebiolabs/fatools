@@ -19,6 +19,9 @@ def align_pm(peaks, ladder, anchor_pairs=None):
 
     if not anchor_pairs:
         anchor_peaks = [ p for p in peaks if 1500 < p.rtime < 5000 ]
+
+        # this finds the pair of peaks that best match to the 2nd and next-to-last ladder steps, and
+        # does a linear fit to the rest of peaks to find the peaks matched to ladder steps
         anchor_pairs, initial_z = estimate_pm( anchor_peaks, ladder['signature'] )
 
     else:
@@ -39,14 +42,15 @@ def align_pm(peaks, ladder, anchor_pairs=None):
 
     else:
         pairs, z, rss, f = align_upper_pm(peaks, ladder, anchor_pairs, initial_z)
-        pairs, z, rss, f = align_lower_pm(peaks, ladder, pairs, initial_z)
+        pairs, z, rss, f = align_lower_pm(peaks, ladder, pairs, z)
 
     #print(rss)
     #plot(f.rtimes, f.sizes, z, pairs)
     # last dp
     dp_result = align_dp(f.rtimes, f.sizes, f.similarity, z, rss)
-    import pprint; pprint.pprint(dp_result.sized_peaks)
+
     if is_verbosity(4):
+        import pprint; pprint.pprint(dp_result.sized_peaks)
         plot(f.rtimes, f.sizes, dp_result.z, [(x[1], x[0]) for x in dp_result.sized_peaks])
 
     dp_result.sized_peaks = f.get_sized_peaks(dp_result.sized_peaks)
@@ -104,15 +108,16 @@ def align_pm(peaks, ladder, anchor_pairs=None):
     for p in dp_result.sized_peaks:
         if (p[0] - zf(p[1]))**2 < 2:
             new_anchor_pairs.append( (p[1], p[0]) )
-    import pprint; pprint.pprint(dp_result.sized_peaks)
-    plot(f.rtimes, f.sizes, dp_result.z, [(x[1], x[0]) for x in dp_result.sized_peaks])
+    if is_verbosity(4):
+        #import pprint; pprint.pprint(dp_result.sized_peaks)
+        plot(f.rtimes, f.sizes, dp_result.z, [(x[1], x[0]) for x in dp_result.sized_peaks])
 
     return align_gm(peaks, ladder, anchor_pairs, dp_result.z)
 
 
 def align_lower_pm(peaks, ladder, anchor_pairs, anchor_z):
 
-    # anchor pairs must be in ascending order
+    # anchor pairs must be in asceding order
 
 
     last_rtime = anchor_pairs[-1][0]
@@ -131,28 +136,36 @@ def align_lower_pm(peaks, ladder, anchor_pairs, anchor_z):
     scores = []
 
     # check the first
-    est_first_bpsize = anchor_z[2] * lower_peaks[0].rtime + anchor_z[3]
-    first_bpsize = [ s for s in lower_sizes if s >= est_first_bpsize ][0]
+    est_first_bpsize = np.poly1d(anchor_z)(lower_peaks[0].rtime)
+    remaining_sizes = [ s for s in lower_sizes if s >= est_first_bpsize ]
 
-    for first_peak in lower_peaks[:-2]:
-        if first_peak.rtime >= anchor_pairs[0][0]:
-            break
+    if remaining_sizes:
+        first_bpsize = remaining_sizes[0]
 
-        for first_bpsize in ladder['sizes'][:2]:
-            zres = estimate_z( [ first_peak.rtime ] + anchor_rtimes, [ first_bpsize ] + anchor_bpsizes, 3 )
-            #print('rss:', zres.rss)
-            #plot(f.rtimes, f.sizes, zres.z, [ (first_peak.rtime, first_bpsize), ] )
-            score, z = minimize_score(f, zres.z, 3)
+        for first_peak in lower_peaks[:-2]:
+            if first_peak.rtime >= anchor_pairs[0][0]:
+                break
 
-            scores.append( (score, z) )
-            #plot(f.rtimes, f.sizes, z, [ (first_peak.rtime, first_bpsize), ] )
+            for first_bpsize in ladder['sizes'][:2]:
+                zres = estimate_z( [ first_peak.rtime ] + anchor_rtimes, [ first_bpsize ] + anchor_bpsizes, 3 )
+                #print('rss:', zres.rss)
+                #plot(f.rtimes, f.sizes, zres.z, [ (first_peak.rtime, first_bpsize), ] )
+                score, z = minimize_score(f, zres.z, 3)
+                
+                scores.append( (score, z) )
+                #plot(f.rtimes, f.sizes, z, [ (first_peak.rtime, first_bpsize), ] )
+                
+        scores.sort( key = lambda x: x[0] )
+        #import pprint; pprint.pprint( scores[:10] )
 
-    scores.sort( key = lambda x: x[0] )
-    #import pprint; pprint.pprint( scores[:10] )
-
-    z = scores[0][1]
-    pairs, rss = f.get_pairs(z)
-
+    if scores:
+        z = scores[0][1]        
+        pairs, rss = f.get_pairs(z)
+    else:
+        z = anchor_z
+        pairs = anchor_pairs
+        rss = None
+        
     #plot(f.rtimes, f.sizes, z, pairs )
 
     return pairs, z, rss, f
@@ -164,56 +177,58 @@ def align_lower_pm(peaks, ladder, anchor_pairs, anchor_z):
 
 def align_upper_pm(peaks, ladder, anchor_pairs, anchor_z):
 
-    # anchor pairs must be in asceding order
+    # anchor pairs must be in ascending order
     anchor_rtimes, anchor_bpsizes = zip( *anchor_pairs )
     anchor_rtimes = list(anchor_rtimes)
     anchor_bpsizes = list(anchor_bpsizes)
 
     # we try to pair-minimize higher peaks and sizes
-
     first_rtime = anchor_rtimes[0]
     first_bpsize = anchor_bpsizes[0]
     peaks = [ p for p in peaks if p.rtime >= first_rtime]
     sizes = [ s for s in ladder['sizes'] if s >= first_bpsize]
     remaining_sizes = [ s for s in ladder['sizes'] if s > anchor_bpsizes[-1] ]
 
-    #sizes = ladder['sizes']
-    f = ZFunc(peaks, sizes, anchor_pairs, estimate=True)
-
     scores = []
 
-    # check the first
-    #print(peaks[-1])
-    est_last_bpsize = np.poly1d(anchor_z)(peaks[-1].rtime)
-    #est_last_bpsize = anchor_z[1] * peaks[-1].rtime**2 + anchor_z[2] * peaks[-1].rtime + anchor_z[3]
-    #print(est_last_bpsize)
-    last_bpsize = max( remaining_sizes[1] if remaining_sizes else 0, [ s for s in sizes if s < est_last_bpsize ][-3] )
-    #plot(f.rtimes, f.sizes, anchor_z, [])
+    f = ZFunc(peaks, sizes, anchor_pairs, estimate=True)
 
+    if remaining_sizes:
+        
+        #sizes = ladder['sizes']
 
-    for last_peak in reversed(peaks[-14:]):
-        if last_peak.rtime <= anchor_pairs[-1][0]:
-            break
+        # check the first
+        est_last_bpsize = np.poly1d(anchor_z)(peaks[-1].rtime)
 
-        zres = estimate_z(anchor_rtimes + [last_peak.rtime], anchor_bpsizes + [last_bpsize], 2)
-        #plot(f.rtimes, f.sizes, zres.z, [ (last_peak.rtime, last_bpsize)] )
-        score, z = minimize_score(f, zres.z, 2)
-        #print(score)
-        #plot(f.rtimes, f.sizes, z, [] )
+        last_bpsize = max( remaining_sizes[1] if remaining_sizes else 0, [ s for s in sizes if s < est_last_bpsize ][-3] )
+        
+        for last_peak in reversed(peaks[-14:]):
+            if last_peak.rtime <= anchor_pairs[-1][0]:
+                break
 
-        scores.append( (score, z) )
+            zres = estimate_z(anchor_rtimes + [last_peak.rtime], anchor_bpsizes + [last_bpsize], 2)
+            #plot(f.rtimes, f.sizes, zres.z, [ (last_peak.rtime, last_bpsize)] )
+            score, z = minimize_score(f, zres.z, 2)
+            #print(score)
+            #plot(f.rtimes, f.sizes, z, [] )
+            
+            scores.append( (score, z) )
 
-    scores.sort( key = lambda x: x[0] )
-    #import pprint; pprint.pprint( scores[:10] )
+        scores.sort( key = lambda x: x[0] )
+        #import pprint; pprint.pprint( scores[:10] )
 
-    z = scores[0][1]
-    pairs, rss = f.get_pairs(z)
+    if scores:
+        z = scores[0][1]
+        pairs, rss = f.get_pairs(z)        
+    else:
+        z = anchor_z
+        pairs = anchor_pairs
+        rss = None
 
     #print(rss)
     #plot(f.rtimes, f.sizes, z, pairs )
 
     return pairs, z, rss, f
-
 
 
 def minimize_score( f, z, order ):
@@ -242,7 +257,10 @@ def minimize_score( f, z, order ):
 
 
 def estimate_pm(peaks, bpsizes):
-
+    """
+    returns sorted list of bp sizes matched to peaks and fits
+    """
+    
     rtimes = [ p.rtime for p in peaks ]
 
     rtime_points = prepare_rtimes( rtimes )
@@ -250,8 +268,11 @@ def estimate_pm(peaks, bpsizes):
 
     f = ZFunc(peaks, bpsizes, [], estimate = True)
 
+
+    # find linear fit for pair of peaks best matched to 2nd and next-to-last ladder step
     scores = []
     for rtime_pair in rtime_points:
+        
         if rtime_pair[0] >= rtime_pair[1]:
             continue
 
@@ -266,21 +287,28 @@ def estimate_pm(peaks, bpsizes):
         #slope = (bpsize_pair[1] - bpsize_pair[0]) / (rtime_pair[1] - rtime_pair[0])
         #intercept = bpsize_pair[0] - slope * rtime_pair[0]
         #z = [ slope intercept ]
+
+        # get the linear fit to this pair of peaks
         zres = estimate_z(rtime_pair, bpsize_pair, 1)
+
+        # see how well all ladder peaks fit to this linear fit
         score = f(zres.z)
+
         scores.append( (score, zres) )
         #plot(f.rtimes, f.sizes, zres.z, [] )
 
     scores.sort( key = lambda x: x[0] )
-    import pprint; pprint.pprint(scores[:5])
+    
+    #import pprint; pprint.pprint(scores[:5])
     zresult = scores[0][1]
 
+    # check this linear fit
     dp_result = align_dp(f.rtimes, f.sizes, f.similarity, zresult.z, zresult.rss)
+    
     #import pprint; pprint.pprint(dp_result.sized_peaks)
     #plot(f.rtimes, f.sizes, dp_result.z, [(x[1], x[0]) for x in dp_result.sized_peaks])
 
     return ( [(x[1], x[0]) for x in dp_result.sized_peaks], dp_result.z )
-
 
 
 def prepare_rtimes(rtimes):

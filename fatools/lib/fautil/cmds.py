@@ -100,6 +100,9 @@ def init_argparser(parser=None):
     p.add_argument('--ladder_rfu_threshold', default=-1, type=float,
                    help='ladder rfu threshold')
 
+    p.add_argument('--ladder_rfu_ratio_threshold', default=-1, type=float,
+                   help='ladder rfu ratio threshold')
+
     p.add_argument('--nonladder_rfu_threshold', default=-1, type=float,
                    help='nonladder rfu threshold')
 
@@ -226,11 +229,11 @@ def do_align( args, fsa_list, _params, f_bad_files, dbh ):
     FSA in the list, and returns a list of good FSAs.
     """
     
-    for fsa in fsa_list:
-        print("file: ", fsa[0].filename)
-        
     if args.ladder_rfu_threshold >= 0:
         _params.ladder.min_rfu = args.ladder_rfu_threshold
+
+    if args.ladder_rfu_ratio_threshold >= 0:
+        _params.ladder.min_rfu_ratio = args.ladder_rfu_ratio_threshold
 
     cerr('I: Aligning size standards...')
 
@@ -276,18 +279,24 @@ def do_plot(args, fsa_list, dbh):
 
         # get conversion from s.t.u. to b.p.
         if args.plotrange:
-            import numpy as  np
-            fit = np.poly1d(fsa.z)
+            
+            left = args.plotrange[0]
+            right = args.plotrange[1]
+            
+            if left<1000: # assume base pair units, convert to scan time units
+                
+                import numpy as  np
+                fit = np.poly1d(fsa.z)
 
-            left = 1000
-            while (fit(left) < args.plotrange[0]):
-                left += 20
-            left -= 20
+                left = 1000
+                while (fit(left) < args.plotrange[0]):
+                    left += 20
+                left -= 20
 
-            right = 6000
-            while (fit(right) > args.plotrange[1]):
-                right -= 20
-            right += 20
+                right = 6000
+                while (fit(right) > args.plotrange[1]):
+                    right -= 20
+                right += 20
 
         if args.plotlist[0] == 'all' or len(args.plotlist) > 0:
             plt.figure()
@@ -306,11 +315,11 @@ def do_plot(args, fsa_list, dbh):
                 continue
 
             plt.plot(channel.data, label="data '" + color + "'")
-            # plt.plot(channel.firstderiv,label="1st deriv")
+            #plt.plot(channel.firstderiv,label="1st deriv")
             plt.plot((0., 6000.), (0., 0.), '--')
             plt.xlim(left, right)
 
-            for p in channel.alleles:
+            for p in channel.get_alleles():
 
                 # label peak
                 y = p.height
@@ -318,7 +327,7 @@ def do_plot(args, fsa_list, dbh):
                     continue
 
                 x = p.rtime
-                label = ("%2.1f b.p. - %s (h=%i)" % (p.size, p.type, p.height))
+                label = ("%2.1f b.p. - %s (h=%i (corr))" % (p.size, p.type, p.height))
                 plt.annotate(label, xy=(x, y), xytext=(-20, 10 * (ipeak % 3 + 1)),
                              textcoords='offset points', ha='right', va='bottom',
                              # bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
@@ -366,7 +375,7 @@ def do_ladderplot( args, fsa_list, dbh ):
         plt.xlabel("peak scan times")
         plt.ylabel("# base pairs")
 
-    plt.show()
+        plt.show()
 
 def do_dendogram( args, fsa_list, dbh ):
 
@@ -430,12 +439,14 @@ def do_listpeaks( args, fsa_list, dbh ):
             else:
                 color = markers['x/'+channel.dye]['filter']
 
+            alleles = channel.get_alleles(broad_peaks_only=False)
+            
             if is_verbosity(4):
                 cout('Marker => %s | %s [%d]' % (channel.marker.code, channel.dye,
-                                                 len(channel.alleles)))
-                cout("channel has alleles :",len(channel.alleles))
+                                                 len(alleles)))
+                cout("channel has alleles :",len(alleles))
             i=1
-            for p in channel.alleles:
+            for p in alleles:
 
                 if args.peaks_format=='standard':
                     out_stream.write('%6s\t%10s\t%3s\t%d\t%d\t%5i\t%3.2f\t%3.2f\n' %
@@ -517,7 +528,8 @@ def open_fsa( args, _params ):
             panel_code = r.get('PANEL', None) or args.panel
             panel = Panel.get_panel(panel_code)
 
-            fsa = FSA.from_file( fsa_filename, panel, _params, options, cache = not args.no_cache )
+            fsa = FSA.from_file( fsa_filename, panel, _params, options,
+                                 cache = not args.no_cache )
             if 'SAMPLE' in inrows.fieldnames:
 
                 # yield (fsa, r['SAMPLE'])

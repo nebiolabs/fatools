@@ -102,6 +102,7 @@ class FSA(FSAMixIn):
     Channel = Channel
 
     def __init__(self):
+        FSAMixIn.__init__(self)
         self.channels = []
         self.excluded_markers = []
 

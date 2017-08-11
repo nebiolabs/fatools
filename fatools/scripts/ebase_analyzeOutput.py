@@ -5,11 +5,32 @@ import os
 import glob
 import sys
 from collections import namedtuple
+import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from fatools.scripts.ebase import MyPeak
+from ebase import file_var_names
+
+#from mpl_toolkits.mplot3d import Axes3D
+
+def to_integer(dt_time):
+    return 10000*dt_time.year + 100*dt_time.month + dt_time.day
+
+class MyPeak():
+
+    def __init__(self, dye, size_s, size_bp, area_s, area_bp, height):
+
+        self.dye     = dye
+        self.size_s  = size_s
+        self.size_bp = size_bp
+        self.area_s  = area_s
+        self.area_bp = area_bp
+        self.height  = height
+        
+    def __repr__(self):
+        return "<P: dye %3s | size_s %3d | size_bp %4d | area_s %3d | area_bp %4d | height %5d >" % (
+            self.dye, self.size_s, self.size_bp, self.area_s, self.area_bp, self.height )
 
 
 def good_ladder(peak):
@@ -24,7 +45,6 @@ def main():
 
     plt.rcParams["patch.force_edgecolor"] = True
     plt.rcParams['figure.figsize'] = 12, 9
-
 
     os.chdir("../output/")
     
@@ -60,17 +80,32 @@ def main():
     
     data = MyData()
     for h in delta_hists_info:
-        data.add_array('B', h[0], h[1]+" (non-ladder)", h[2], h[3], h[4])
-        data.add_array('O', h[0], h[1]+" (ladder)",     h[2], h[3], h[4])
+        data.add_array(h[0], h[1]+" (non-ladder)", h[2], h[3], h[4], key='B')
+        data.add_array(h[0], h[1]+" (ladder)",     h[2], h[3], h[4], key='O')
 
     for h in single_alg_hists_info:
-        data.add_array('B', h[0], h[1]+" (non-ladder)", h[2], h[3], h[4])
-        data.add_array('O', h[0], h[1]+" (ladder)",     h[2], h[3], h[4])
+        data.add_array(h[0], h[1]+" (non-ladder)", h[2], h[3], h[4], key='B')
+        data.add_array(h[0], h[1]+" (ladder)",     h[2], h[3], h[4], key='O')
 
     for dir in dirnames:
 
-        print("dir: ", dir)
+        #print("dir: ", dir)
         os.chdir(dir)
+
+        # get test info
+        test_info = {}
+        with open(dir+"_info.txt", 'r') as f:
+            for line in f:
+                line_info = line.split(':')
+                test_info[line_info[0]] = line_info[1].strip()
+        f.close()
+        #print("test_info: ", test_info)
+        print("excl: ", test_info['excluded'],", flag_th: ", test_info['flag_th'],
+              ", op id: ", test_info['operator_id'], ", peak_th: ", test_info['peak_th'])
+        
+        if (test_info['operator_id']!='1182' or test_info['peak_th']!='150.0'):
+            os.chdir("..")
+            continue
 
         csv_files = glob.glob("*.csv")
         peaks_table_file_name = csv_files[0]
@@ -109,7 +144,7 @@ def main():
             # get data
             fill_data_arrays(peak_info_nl, peak_info_la, data)
 
-        print("output dir: ", os.getcwd())
+        #print("output dir: ", os.getcwd())
         f_output.close()
         os.chdir('..')
 
@@ -128,7 +163,7 @@ def main():
                               ('area_s_ps_matched', 'area_s_fa_matched', 'area_s_corr.png'),
                               ('area_bp_ps_matched', 'area_bp_fa_matched', 'area_bp_corr.png'),
                               ('h_ps_matched', 'h_fa_matched', 'h_corr.png'),
-                              ('rel_h_ps_matched', 'rel_h_fa_matched', 'rel_h_corr.png') ] )
+                              ('rel_h_ps_matched', 'rel_h_fa_matched', 'rel_h_corr.png') ], False, False)
 
     
 def fill_data_arrays(peak_info_nl, peak_info_la, data):
@@ -352,15 +387,19 @@ class MyData():
         self.array = {}
 
         
-    def add_array(self, key, name, title, nbins, low, high):
+    def add_array(self, name, title, nbins, low, high, key=None):
 
         arr = self.MyArray(nbins, low, high, title)
-        if name in self.array.keys():
-            self.array[name][key] = arr
-        else:
-            self.array[name] = { key : arr }
 
-            
+        if key:
+            if name in self.array.keys():
+                self.array[name][key] = arr
+            else:
+                self.array[name] = { key : arr }
+        else:
+            self.array[name] = self.MyArray(nbins, low, high, title)
+
+
     def append(self, name, dye, value):
         self.array[name][dye].append(value)
 
@@ -407,7 +446,7 @@ class MyData():
             plt.show()
 
             
-    def plot_correlations(self, names, nonladder=True):
+    def plot_correlations(self, names, nonladder=True, colors=False):
 
         dye = 'B' if nonladder else 'O'
         for histname1, histname2, pngfilename in names:
@@ -415,8 +454,19 @@ class MyData():
             arr1 = self.get_array(histname1, dye).array
             arr2 = self.get_array(histname2, dye).array
 
-            ax = plt.figure().add_subplot(111)
-            ax.scatter(arr1, arr2, s=1)
+            if colors:
+                arr3 = self.get_array('date', dye).array
+
+                max_arr3 = max(arr3)
+                
+            if not colors:
+                ax = plt.figure().add_subplot(111)
+                ax.scatter(arr1, arr2, s=1)
+            else:
+                ax = plt.figure().add_subplot(111)
+                s = ax.scatter(arr1, arr2, c=arr3, s=0.25)
+                cb = plt.colorbar(s)
+                
             ax.set_title(pngfilename[:-4])
             ax.set_xlabel(self.get_array(histname1,dye).get_title())                      
             ax.set_ylabel(self.get_array(histname2,dye).get_title())

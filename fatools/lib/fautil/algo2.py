@@ -79,7 +79,7 @@ def scan_peaks(channel, parameters, offset=0):
     return alleles
 
 def preannotate_peaks(channel, params):
-    
+
     """
     pre-annotate peaks as peak-scanned / peak-broad / peak-stutter/ peak-overlap
     based on criteria defined in params
@@ -92,7 +92,8 @@ def preannotate_peaks(channel, params):
 
     # peak is broad if beta > beta_broad_threshold
 
-    channel_peaks = [ (list(channel.alleles), np.median(channel.data)) ]
+    channel_peaks = [ (list(channel.get_alleles(broad_peaks_only = False)),
+                       np.median(channel.data)) ]
 
     # reset all peak type, score the peaks and set the peak type to peak-noise,
     # peak-broad
@@ -201,7 +202,7 @@ def call_peaks( channel, params, func, min_rtime, max_rtime ):
     """
 
     
-    for allele in channel.alleles:
+    for allele in channel.get_alleles(broad_peaks_only=False):
 
         if not min_rtime < allele.rtime < max_rtime:
             if allele.type == const.peaktype.scanned:
@@ -237,14 +238,6 @@ def align_peaks(channel, params, ladder, anchor_pairs=None):
 
     if (len(alleles) != len(ladder['sizes'])):
         raise LadderMismatchException( ("alleles not same length as ladder for file: %s!") % channel.fsa.filename)
-
-    # reset all peaks first
-    for p in channel.get_alleles():
-        p.size = -1
-        p.area_bp = -1
-        p.status = const.peaktype.scanned
-
-    #anchor_pairs = pairs
 
     if anchor_pairs:
         return align_pm( alleles, ladder, anchor_pairs)
@@ -294,6 +287,7 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
     params.min_dist
     params.norm_thres
     params.min_rfu
+    params.min_rfu_ratio
     params.max_peak_number
     """
 
@@ -364,16 +358,27 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
     if offset > 0:
         indices += offset
 
-    # filter peaks by minimum rfu if configured, otherwise use ratio
-    if params.min_rfu>=1:        
-        peaks = [ Peak( int(i), int(data[i]) ) for i in indices
-                  if (data[i] >= params.min_rfu and params.min_rtime < i < params.max_rtime) ]
-    else:
-        # get highest peak
-        max_rfu = max(data)
-        peaks = [ Peak( int(i), int(data[i]) ) for i in indices
-                  if (data[i] >= params.min_rfu * max_rfu and params.min_rtime < i < params.max_rtime) ]
+    # filter peaks by minimum rfu and minimum rfu ratio
+
+    def pass_threshold(h, params, maxheight):
+        return ((h >= params.min_rfu_ratio * maxheight) or
+                (h >= params.min_rfu))
         
+    max_rfu = max(data)
+    peaks = [ Peak( int(i), int(data[i]) ) for i in indices
+              if ( pass_threshold(data[i], params, max_rfu) and
+                   params.min_rtime < i < params.max_rtime) ]
+
+    if not peaks: return peaks
+    
+    # call measure_peaks here to adjust the rfu by the baseline
+    measure_peaks(peaks, channel, params.baseline_correct, offset)
+
+    # check the thresholds again
+    #print("peaks: ", peaks)
+    max_rfu = max([peak.rfu for peak in peaks])
+    peaks = [ peak for peak in peaks if pass_threshold(peak.rfu,params,max_rfu) ]
+    
     # filter peaks by maximum peak number after sorted by rfu
     #peaks = sorted( peaks, key = lambda x: x.rfu )[:params.max_peak_number * 2]
     #import pprint; pprint.pprint(peaks)
@@ -400,7 +405,7 @@ def find_peaks(channel, params, offset=0, expected_peak_number=0):
         return peaks
 
     # measure peaks parameters
-    measure_peaks(peaks, channel, offset)
+    #measure_peaks(peaks, channel, offset)
 
     #import pprint; pprint.pprint(peaks)
 
@@ -418,7 +423,7 @@ def find_peaks(channel, params, offset=0, expected_peak_number=0):
     return peaks
 
 
-def measure_peaks(peaks, channel, offset=0):
+def measure_peaks(peaks, channel, baseline_correct = True, offset=0):
 
     data = channel.data
     firstderiv = channel.firstderiv
@@ -431,8 +436,18 @@ def measure_peaks(peaks, channel, offset=0):
         else:
             p.area, p.brtime, p.ertime, p.srtime, ls, rs = \
                 calculate_area_firstderiv( data, firstderiv, p.rtime )
-            
+
+        # correct for baseline
+        baseline = min(data[p.brtime],data[p.ertime])
         p.wrtime = p.ertime - p.brtime
+
+        if baseline_correct:
+            p.area -= baseline * p.wrtime
+            p.rfu -= baseline
+            p.rfu = max(p.rfu, 0.)
+        
+        if p.rfu==0.: continue
+        
         p.beta = p.area / p.rfu
         if p.wrtime == 0:
             p.theta = 0
@@ -519,16 +534,19 @@ def half_area_firstderiv(y, firstderiv, decreasing):
     area = y[0]
     dy = firstderiv[0]
 
-    limit = len(y)
+    limit = len(firstderiv)
 
     index = 1
-    pos = ( firstderiv[index] < 0. ) if decreasing else ( firstderiv[index] > 0. )
 
-    while ( pos and index < limit ):
+    if index<limit:
+        pos = ( firstderiv[index] < 0. ) if decreasing else ( firstderiv[index] > 0. ) 
+    else:
+        pos = False
+        
+    while ( pos and index < limit-1 ):
         area += y[index]
         index += 1
-        pos = ( firstderiv[index] < 0. ) if decreasing else ( firstderiv[index] > 0. )  
-
+        pos = ( firstderiv[index] < 0. ) if decreasing else ( firstderiv[index] > 0. )
     index -= 1
 
     return area, index, shared
@@ -1004,6 +1022,9 @@ def local_southern( ladder_alleles ):
             L0 = L_num/L_denom
             M0 = (x1*(y1-L0) - x3*(y3-L0))/(y1-y3)
             c  = (y1 - L0) * (x1 - M0)
+            if (rtime==M0):
+                print("There's a problem... M0=",M0,", rtime=",rtime)
+                return -9999
             size = c/(rtime - M0) + L0
 
         return size
@@ -1055,7 +1076,8 @@ def mark_overlap_peaks(channels, params):
             if channel == channel_r:
                 continue
             
-            for p in channel.alleles:
+            for p in channel.get_alleles(broad_peaks_only=False):
+
                 if p.type == const.peaktype.noise:
                     continue
                 

@@ -42,7 +42,8 @@ class ScanningParameter(object):
         self.peakwindow = 5
         self.norm_thres = 0.05
         self.min_dist = 10
-        self.min_rfu = 20 # if this is a fraction < 1, assumes a relative min (relative to tallest peak in channel)
+        self.min_rfu = 20 
+        self.min_rfu_ratio = 1 
         self.artifact_dist = 20
 
         self.min_theta = 0
@@ -50,7 +51,8 @@ class ScanningParameter(object):
         self.min_omega = 0
 
         self.keep_artifacts = True
-
+        self.baseline_correct = True # to correct baseline peak-by-peak
+        
 class LadderScanningParameter(ScanningParameter):
 
     def __init__(self):
@@ -76,14 +78,17 @@ class LadderScanningParameter(ScanningParameter):
         self.peakdegree = 3
         self.peakwindow = 15
         self.norm_thres = 0.1
-        self.min_rfu = 3 # if this is a fraction < 1, assumes a relative min (relative to tallest peak in channel)
+        self.min_rfu = 3 
+        self.min_rfu_ratio = 0.25 
         self.min_dist = 12
 
         self.min_theta = 4
-        self.max_beta = 18
+        self.max_beta = 0
 
         self.artifact_dist = 15
         self.artifact_ratio = 0.5
+
+        self.baseline_correct = True # to correct baseline peak by peak
 
 class Params(object):
 

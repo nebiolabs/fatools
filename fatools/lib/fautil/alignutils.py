@@ -243,7 +243,8 @@ def align_dp( rtimes, sizes, similarity, z, rss, order = 3):
         cur_zres = estimate_z( peak_sizes, std_size, order )
 
         if cur_dpscore < dpscore:
-            cerr('W: dynamic programming did not converge!!')
+            if is_verbosity(4):
+                cerr('W: dynamic programming did not converge!!')
             break
 
         if cur_dpscore == dpscore:
