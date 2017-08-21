@@ -68,6 +68,7 @@ class Allele(AlleleMixIn):
         self.end_bp = -1
         self.width_bp = -1
         self.area_bp = -1
+        self.area_bp_corr = -1
 
         self.qscore = 99
 

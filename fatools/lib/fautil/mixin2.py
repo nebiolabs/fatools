@@ -149,6 +149,15 @@ class ChannelMixIn(object):
         
         #import pprint; pprint.pprint(alleles)
 
+
+    # ChannelMixIn call method
+    def normalize(self, parameters):
+
+        params = parameters.ladder if self.is_ladder() else parameters.nonladder
+
+        algo.normalize_peaks(self, params)
+        
+        
 class FSAMixIn(object):
     """
     attrs: channels
@@ -156,13 +165,14 @@ class FSAMixIn(object):
 
     __slots__ = [   'panel', 'channels', 'excluded_markers', 'filename',
                     'date', 'rss', 'z', 'score', 'nladder', 'duration',
-                    'allele_fit_func', 'min_rtime', 'max_rtime', 'scan_done',
-                    'align_done'
+                    'allele_fit_func', 'area_scale_factor', 'min_rtime', 'max_rtime',
+                    'scan_done', 'align_done', 'call_done'
                 ]
 
     def __init__(self):
+        self.area_scale_factor = -1
         self.scan_done = False
-
+        self.call_done = False
 
     def get_data_stream(self):
         """ return stream of data """
@@ -234,12 +244,27 @@ class FSAMixIn(object):
     # FSAMixIn call method
     def call(self, parameters):
 
+        if self.call_done: return
+        
         ladder = self.get_ladder_channel()
 
         self.scan(parameters)
         
         for c in self.channels:
             c.call(parameters, ladder)
+
+        self.call_done = True
+        
+    # FSAMixIn call method
+    def normalize(self, parameters, ladder_means):
+
+        self.call(parameters)
+
+        # get scale factor for this FSA using ladder channel
+        algo.set_scale_factor(self.get_ladder_channel(), ladder_means)
+        
+        for c in self.channels:
+            c.normalize(parameters)
 
     def get_ladder_channel(self):
 
@@ -311,6 +336,10 @@ class PanelMixIn(object):
     attrs: id, code, data, dyes, Marker
     """
 
+    def __init__(self):
+        self.ladder_area_means = []
+
+
     def set_ladder_dye(self, ladder):
         raise NotImplementedError()
 
@@ -344,6 +373,14 @@ class PanelMixIn(object):
         return const.ladders[ self.data['ladder']]
 
 
+    def get_ladder_area_means(self, fsa_list):
+
+        ladders = self.get_ladder()['sizes']
+
+        if not self.ladder_area_means:
+            self.ladder_area_means = algo.ladder_area_means(ladders, fsa_list)
+
+        return self.ladder_area_means
 
     @classmethod
     def from_dict(cls, d):

@@ -52,6 +52,9 @@ def init_argparser(parser=None):
     p.add_argument('--dendogram', default=False, action='store_true',
             help = 'plot dendograms of ladders and alleles')
 
+    p.add_argument('--normalize', default=False, action='store_true',
+            help = 'calculate normalized areas for all peaks')
+
     p.add_argument('--listpeaks', default=False, action='store_true',
             help = 'list all peaks')
 
@@ -187,6 +190,8 @@ def do_facmds(args, fsa_list, _params, dbh=None):
 
     args.plotrange = []
 
+    aligned_fsa_list = fsa_list
+    
     executed = 0
     if args.clear:
         do_clear( args, fsa_list, dbh )
@@ -203,6 +208,9 @@ def do_facmds(args, fsa_list, _params, dbh=None):
             args.plotrange = [int(item) for item in args.range.split(',')]
         do_plot( args, fsa_list, dbh )
         executed += 1
+    if args.normalize is not False:
+        do_normalize( args, aligned_fsa_list, _params)
+        executed += 1
     if args.dendogram:
         do_dendogram( args, fsa_list, dbh)
         executed += 1
@@ -218,7 +226,8 @@ def do_facmds(args, fsa_list, _params, dbh=None):
         cerr('I: executed %d command(s)' % executed)
 
     f_bad_files.close()
-    
+
+
 def do_clear( args, fsa_list, dbh ):
     pass
 
@@ -248,6 +257,7 @@ def do_align( args, fsa_list, _params, f_bad_files, dbh ):
             
     return good_fsa
 
+
 def do_call( args, fsa_list, params, dbh ):
 
     cerr('I: Calling non-ladder peaks...')
@@ -261,6 +271,22 @@ def do_call( args, fsa_list, params, dbh ):
     for (fsa, fsa_index) in fsa_list:
         cverr(3, 'D: calling FSA %s' % fsa.filename)
         fsa.call(params)
+
+
+def do_normalize( args, fsa_list, params ):
+
+    cerr('I: Normalizing all peaks...')
+
+    # use panel method to set scale factors for all FSA
+    from fatools.lib.fileio.models import Panel
+    panel = Panel.get_panel(args.panel)
+    
+    ladder_means = panel.get_ladder_area_means(fsa_list)
+
+    # normalize areas for each FSA
+    for (fsa, fsa_index) in fsa_list:
+        cverr(3, 'D: calling normalize for %s' % fsa.filename)
+        fsa.normalize(params, ladder_means)
 
 
 def do_plot(args, fsa_list, dbh):
@@ -409,7 +435,6 @@ def do_dendogram( args, fsa_list, dbh ):
                 labels = [ x[0] for x in P.p ])
         plt.show()
 
-
 def do_listpeaks( args, fsa_list, dbh ):
 
     if args.outfile != '-':
@@ -420,7 +445,7 @@ def do_listpeaks( args, fsa_list, dbh ):
     if args.peaks_format=='standard':
         out_stream.write('SAMPLE\tFILENAME   \tDYE\tRTIME\tSIZE\tHEIGHT\tAREA\tSCORE\n')
     elif args.peaks_format == 'peakscanner':
-        out_stream.write("Dye/Sample Peak,Sample File Name,Type,Size,Height,Area in Point,Area in BP,Data Point,Begin Point,")
+        out_stream.write("Dye/Sample Peak,Sample File Name,Type,Size,Height,Area in Point,Area in BP,Corrected Area in BP,Data Point,Begin Point,")
         out_stream.write("Begin BP,End Point,End BP,Width in Point,Width in BP,User Comments,User Edit\n")
 
     else:
@@ -452,9 +477,9 @@ def do_listpeaks( args, fsa_list, dbh ):
                     out_stream.write('%6s\t%10s\t%3s\t%d\t%d\t%5i\t%3.2f\t%3.2f\n' %
                                      (fsa_index, fsa.filename[:-4], color, p.rtime, p.size, p.height, p.area, p.qscore))
                 else:
-                    out_stream.write('"%s, %i",%s, %s, %f, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f,,\n' %
-                                     (color, i, fsa.filename, p.type, p.size, p.height, p.area, p.area_bp, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp))
-                i = i+1
+                    out_stream.write('"%s, %i",%s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f,,\n' %
+                                     (color, i, fsa.filename, p.type, p.size, p.height, p.area, p.area_bp, p.area_bp_corr, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp))
+                i = i+1 
 
         out_stream.close()
 

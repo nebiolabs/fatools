@@ -10,27 +10,14 @@ import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 
+from get_peaks import MyPeak, get_peaks
+
 from ebase import file_var_names
 
 #from mpl_toolkits.mplot3d import Axes3D
 
 def to_integer(dt_time):
     return 10000*dt_time.year + 100*dt_time.month + dt_time.day
-
-class MyPeak():
-
-    def __init__(self, dye, size_s, size_bp, area_s, area_bp, height):
-
-        self.dye     = dye
-        self.size_s  = size_s
-        self.size_bp = size_bp
-        self.area_s  = area_s
-        self.area_bp = area_bp
-        self.height  = height
-        
-    def __repr__(self):
-        return "<P: dye %3s | size_s %3d | size_bp %4d | area_s %3d | area_bp %4d | height %5d >" % (
-            self.dye, self.size_s, self.size_bp, self.area_s, self.area_bp, self.height )
 
 
 def good_ladder(peak):
@@ -40,6 +27,7 @@ def good_ladder(peak):
 def good_nonladder(peak):
     return (peak.dye=='B' and peak.height>=100.)
 
+showplots = False
 
 def main():
 
@@ -73,8 +61,8 @@ def main():
                              [ 'area_s_ps_matched',  'area_s PS (matched)',     60, 0,  60000 ],
                              [ 'area_bp_fa_matched', 'area_bp FA (matched)',    60, 0,  60000 ],
                              [ 'area_bp_ps_matched', 'area_bp PS (matched)',    60, 0,  60000 ],
-                             [ 'h_fa_matched',       'height FA (matched)',    60, 0,  200000 ],
-                             [ 'h_ps_matched',       'height PS (matched)',    60, 0,  200000 ],
+                             [ 'h_fa_matched',       'height FA (matched)',    60, 0,  50000 ],
+                             [ 'h_ps_matched',       'height PS (matched)',    60, 0,  50000 ],
                              [ 'rel_h_fa_matched', 'height rel. to highest peak - FA (matched)', 20, 0, 1 ],
                              [ 'rel_h_ps_matched', 'height rel. to highest peak - PS (matched)', 20, 0, 1 ] ]
     
@@ -87,9 +75,24 @@ def main():
         data.add_array(h[0], h[1]+" (non-ladder)", h[2], h[3], h[4], key='B')
         data.add_array(h[0], h[1]+" (ladder)",     h[2], h[3], h[4], key='O')
 
-    for dir in dirnames:
+    for i in range(9):
+        data.add_array('h_peak'+str(i),  'height of peak '+str(i+1)+' (rfu)', 50, 0, 32000, key='O')
+        data.add_array('fwhm_peak'+str(i),  'FWHM of peak '+str(i+1)+' (rfu)', 20, 0, 20, key='O')
+        data.add_array('area_bp_peak'+str(i), 'area of peak '+str(i+1)+' (bp units)', 50, 0, 40000, key='O')
+        data.add_array('area_bp_corr_peak'+str(i), 'area of peak '+str(i+1)+' corrected (bp units)', 50, 0, 40000, key='O')
 
-        #print("dir: ", dir)
+        for j in range(i+1,9):
+            data.add_array('area_bp_p'+str(j)+'_p'+str(i), 'ratio of areas of peak '+str(j+1)+' to peak '+str(i+1),
+                           20, 0.5,2.5, key='O')
+            #data.add_array('area_bp_corr_p'+str(j)+'_p'+str(i),
+            #               'ratio of corrected areas of peak '+str(j+1)+' to peak '+str(i+1),
+            #               20, 0.5,2.5, key='O')
+            
+    for idir in range(len(dirnames)):
+        dir = dirnames[idir]
+
+        print("dir: ", dir)
+        
         os.chdir(dir)
 
         # get test info
@@ -99,14 +102,7 @@ def main():
                 line_info = line.split(':')
                 test_info[line_info[0]] = line_info[1].strip()
         f.close()
-        #print("test_info: ", test_info)
-        print("excl: ", test_info['excluded'],", flag_th: ", test_info['flag_th'],
-              ", op id: ", test_info['operator_id'], ", peak_th: ", test_info['peak_th'])
         
-        if (test_info['operator_id']!='1182' or test_info['peak_th']!='150.0'):
-            os.chdir("..")
-            continue
-
         csv_files = glob.glob("*.csv")
         peaks_table_file_name = csv_files[0]
 
@@ -142,7 +138,8 @@ def main():
             peak_info_la = process_peaks(f_output, fsa_file, peaks_ps_la, peaks_fa_la)
             
             # get data
-            fill_data_arrays(peak_info_nl, peak_info_la, data)
+            fill_data_arrays(peak_info_nl, peak_info_la, data, idir)
+            fill_area_arrays(peak_info_nl, peak_info_la, data, idir)
 
         #print("output dir: ", os.getcwd())
         f_output.close()
@@ -152,21 +149,62 @@ def main():
     
     histnames = [ x[0] for x in delta_hists_info ]
 
-    data.plot_histograms(histnames, nonladder=True)
-    data.plot_histograms(histnames, nonladder=False)
-    
+    data.plot_histograms(histnames, nonladder=True, dirs=[])
+    data.plot_histograms(histnames, nonladder=False, dirs=[])
+
+    data.plot_histograms(['h_fa_matched'], nonladder=True, dirs=[])
+    data.plot_histograms(['h_fa_matched'], nonladder=False, dirs=[])
+
     data.plot_overlay_histograms( [ ('s_fa', 's_ps', 'peak size (s.t.u.)', 's_both.png'),
                                     ('rel_h_fa', 'rel_h_ps', 'relative height', 'rel_h_both.png') ] )
+ 
+    data.plot_correlations( [ ('s_fa_matched', 's_ps_matched', 's_corr.png'),
+                              ('bp_fa_matched', 'bp_ps_matched', 'bp_corr.png'),
+                              ('area_s_fa_matched', 'area_s_ps_matched', 'area_s_corr.png'),
+                              ('area_bp_fa_matched', 'area_bp_ps_matched', 'area_bp_corr.png'),
+                              ('h_fa_matched', 'h_ps_matched', 'h_corr.png'),
+                              ('rel_h_fa_matched', 'rel_h_ps_matched', 'rel_h_corr.png') ], ['L','L'], False)
 
-    data.plot_correlations( [ ('s_ps_matched', 's_fa_matched', 's_corr.png'),
-                              ('bp_ps_matched', 'bp_fa_matched', 'bp_corr.png'),
-                              ('area_s_ps_matched', 'area_s_fa_matched', 'area_s_corr.png'),
-                              ('area_bp_ps_matched', 'area_bp_fa_matched', 'area_bp_corr.png'),
-                              ('h_ps_matched', 'h_fa_matched', 'h_corr.png'),
-                              ('rel_h_ps_matched', 'rel_h_fa_matched', 'rel_h_corr.png') ], False, False)
 
+    data.plot_histograms(['area_bp_peak0'], nonladder=False, dirs=[])
+    data.plot_histograms(['area_bp_corr_peak0'], nonladder=False, dirs=[])
+    #data.plot_histograms(['fwhm_peak0'], nonladder=False, dirs=[])
     
-def fill_data_arrays(peak_info_nl, peak_info_la, data):
+    for i in range(1,9):
+        
+        data.plot_histograms(['area_bp_peak'+str(i)], nonladder=False, dirs=[])
+        data.plot_histograms(['area_bp_corr_peak'+str(i)], nonladder=False, dirs=[])
+
+        #data.plot_histograms(['fwhm_peak'+str(i)], nonladder=False, dirs=[])
+        
+        data.plot_correlations([ ('h_peak'+str(i), 'h_peak0', 'peak'+str(i)+'_peak0.png')], ['L','L'], False)
+        data.plot_correlations([ ('area_bp_peak'+str(i), 'area_bp_peak0','area_bp_peak'+str(i)+'_v_peak0.png')], ['L','L'], False)
+        data.plot_correlations([ ('area_bp_corr_peak'+str(i), 'area_bp_corr_peak0','area_bp_corr_peak'+str(i)+'_v_peak0.png')], ['L','L'], False)
+        #data.plot_correlations([ ('fwhm_peak'+str(i), 'fwhm_peak0', 'fwhm_peak'+str(i)+'_peak0.png')], ['L','L'], False)
+        if i>1:
+            data.plot_correlations([ ('area_bp_peak'+str(i), 'area_bp_peak'+str(i-1),'area_bp_peak'+str(i)+'_peak'+str(i-1)+'.png')], ['L','L'], False)
+            data.plot_correlations([ ('area_bp_corr_peak'+str(i), 'area_bp_corr_peak'+str(i-1),'area_bp_corr_peak'+str(i)+'_peak'+str(i-1)+'.png')], ['L','L'], False)
+
+    fig = plt.figure()
+    full_ax = fig.add_subplot(111)
+    for i in range(9):
+        for j in range(i+1,9):
+            ax = fig.add_subplot(9,9,j*9+i+1, sharex = full_ax, sharey = full_ax)
+            data.plot_histograms_matrix(['area_bp_p'+str(j)+'_p'+str(i)], nonladder=False, dirs=[], axes=ax)
+            ax.text(1.5,4,'p'+str(j+1)+'/p'+str(i+1))            
+    full_ax.set_xlabel("Peak-to-peak ratio of areas")
+    full_ax.set_ylabel("# entries")
+    full_ax.tick_params(labelcolor='w', top='off', bottom='off', left='off', right='off')
+    full_ax.spines['top'].set_color('none')
+    full_ax.spines['bottom'].set_color('none')
+    full_ax.spines['left'].set_color('none')
+    full_ax.spines['right'].set_color('none')
+    if showplots: plt.show()
+    plt.savefig('plots/area_ratio_matrix.png')
+    plt.close()
+    
+    
+def fill_data_arrays(peak_info_nl, peak_info_la, data, idir):
 
     max_ps = {}
     max_fa = {}
@@ -176,8 +214,8 @@ def fill_data_arrays(peak_info_nl, peak_info_la, data):
     max_fa['O'] = peak_info_la.max_height_fa
 
     for dye in ['B', 'O']:
-        data.get_array('max_h_ps', dye).append(max_ps[dye])
-        data.get_array('max_h_fa', dye).append(max_fa[dye])
+        data.get_array('max_h_ps', dye).append(idir, max_ps[dye])
+        data.get_array('max_h_fa', dye).append(idir, max_fa[dye])
 
     for pair in (peak_info_nl.matched_pairs + peak_info_la.matched_pairs):
         ps = pair.ps
@@ -189,58 +227,77 @@ def fill_data_arrays(peak_info_nl, peak_info_la, data):
         relheight_fa = float(fa.height)/max_fa[dye]
 
         diff_size_s = fa.size_s - ps.size_s
-        #if diff_size_s==-1 or diff_size_s==1:
-        #    print("diff_size_s=", diff_size_s)
+        
+        data.get_array('s_fa', dye).append(idir, fa.size_s)
+        data.get_array('s_ps', dye).append(idir, ps.size_s)
 
-        data.get_array('s_fa', dye).append(fa.size_s)
-        data.get_array('s_ps', dye).append(ps.size_s)
+        data.get_array('s_fa_matched', dye).append(idir, fa.size_s)
+        data.get_array('s_ps_matched', dye).append(idir, ps.size_s)
 
-        data.get_array('s_fa_matched', dye).append(fa.size_s)
-        data.get_array('s_ps_matched', dye).append(ps.size_s)
+        data.get_array('bp_fa_matched', dye).append(idir, fa.size_bp)
+        data.get_array('bp_ps_matched', dye).append(idir, ps.size_bp)
 
-        data.get_array('bp_fa_matched', dye).append(fa.size_bp)
-        data.get_array('bp_ps_matched', dye).append(ps.size_bp)
+        data.get_array('area_s_fa_matched', dye).append(idir, fa.area_s)
+        data.get_array('area_s_ps_matched', dye).append(idir, ps.area_s)
 
-        data.get_array('area_s_fa_matched', dye).append(fa.area_s)
-        data.get_array('area_s_ps_matched', dye).append(ps.area_s)
+        data.get_array('area_bp_fa_matched', dye).append(idir, fa.area_bp)
+        data.get_array('area_bp_ps_matched', dye).append(idir, ps.area_bp)
 
-        data.get_array('area_bp_fa_matched', dye).append(fa.area_bp)
-        data.get_array('area_bp_ps_matched', dye).append(ps.area_bp)
+        data.get_array('h_fa_matched', dye).append(idir, fa.height)
+        data.get_array('h_ps_matched', dye).append(idir, ps.height)
 
-        data.get_array('h_fa_matched', dye).append(fa.height)
-        data.get_array('h_ps_matched', dye).append(ps.height)
+        data.get_array('rel_h_fa_matched', dye).append(idir, relheight_fa)
+        data.get_array('rel_h_ps_matched', dye).append(idir, relheight_ps)
 
-        data.get_array('rel_h_fa_matched', dye).append(relheight_fa)
-        data.get_array('rel_h_ps_matched', dye).append(relheight_ps)
-
-        data.get_array('delta_s', dye).append(fa.size_s - ps.size_s)
-        data.get_array('delta_h', dye).append(fa.height  - ps.height)
-        data.get_array('rel_h_ps', dye).append(relheight_ps)
-        data.get_array('rel_h_fa', dye).append(relheight_fa)
-        data.get_array('delta_rel_h', dye).append(relheight_fa - relheight_ps)
+        data.get_array('delta_s', dye).append(idir, fa.size_s - ps.size_s)
+        data.get_array('delta_h', dye).append(idir, fa.height  - ps.height)
+        data.get_array('rel_h_ps', dye).append(idir, relheight_ps)
+        data.get_array('rel_h_fa', dye).append(idir, relheight_fa)
+        data.get_array('delta_rel_h', dye).append(idir, relheight_fa - relheight_ps)
 
         if abs(fa.size_bp - ps.size_bp)<=40:
-            data.get_array('delta_bp', dye).append(int(fa.size_bp - ps.size_bp))
+            data.get_array('delta_bp', dye).append(idir, int(fa.size_bp - ps.size_bp))
         else:
-            data.get_array('bp_fa_oor', dye).append(fa.size_bp)
-            data.get_array('s_fa_oor', dye).append(fa.size_s)
+            data.get_array('bp_fa_oor', dye).append(idir, fa.size_bp)
+            data.get_array('s_fa_oor', dye).append(idir, fa.size_s)
 
-        data.get_array('delta_area_s', dye).append((fa.area_s - ps.area_s)/ps.area_s if ps.area_s!=0 else -999)
-        data.get_array('delta_area_bp', dye).append((fa.area_bp - ps.area_bp)/ps.area_bp if ps.area_bp!=0 else -999)
+        data.get_array('delta_area_s', dye).append(idir, (fa.area_s - ps.area_s)/ps.area_s if ps.area_s!=0 else -999)
+        data.get_array('delta_area_bp', dye).append(idir, (fa.area_bp - ps.area_bp)/ps.area_bp if ps.area_bp!=0 else -999)
 
     for peak in (peak_info_nl.extra_peaks_ps):
-        data.get_array('s_ps', 'B').append(peak.size_s)
+        data.get_array('s_ps', 'B').append(idir, peak.size_s)
 
     for peak in (peak_info_nl.extra_peaks_fa):
-        data.get_array('s_fa', 'B').append(peak.size_s)
+        data.get_array('s_fa', 'B').append(idir, peak.size_s)
 
     for peak in (peak_info_la.extra_peaks_ps):
-        data.get_array('s_ps', 'O').append(peak.size_s)
+        data.get_array('s_ps', 'O').append(idir, peak.size_s)
 
     for peak in (peak_info_la.extra_peaks_fa):
-        data.get_array('s_fa', 'O').append(peak.size_s)
+        data.get_array('s_fa', 'O').append(idir, peak.size_s)
 
-    
+def fill_area_arrays(peak_info_nl, peak_info_la, data, idir):
+
+    if (len(peak_info_la.matched_pairs)==9 and len(peak_info_nl.matched_pairs)>0):
+
+        heights_la, areas_la, areas_corr_la, fwhm_la = [], [], [], []
+        for pair in peak_info_la.matched_pairs:
+            heights_la.append(pair.fa.height)
+            areas_la.append(pair.fa.area_bp)
+            areas_corr_la.append(pair.fa.area_bp_corr)
+            fwhm_la.append(pair.fa.fwhm)
+
+        for i in range(9):
+            data.get_array('h_peak'+str(i), 'O').append(idir, heights_la[i])
+            data.get_array('area_bp_peak'+str(i), 'O').append(idir, areas_la[i])
+            data.get_array('area_bp_corr_peak'+str(i), 'O').append(idir, areas_corr_la[i])
+            data.get_array('fwhm_peak'+str(i), 'O').append(idir, fwhm_la[i])
+
+            for j in range(i+1,9):
+                if areas_la[j]>0:
+                    data.get_array('area_bp_p'+str(j)+'_p'+str(i),'O').append(idir, areas_la[j]/areas_la[i])
+                    #data.get_array('area_bp_corr_p'+str(j)+'_p'+str(i),'O').append(idir, areas_corr_la[j]/areas_corr_la[i])
+
 def process_peaks(f, fsa_file, peaks_ps, peaks_fa):
     
     # match pairs of peaks
@@ -313,84 +370,21 @@ def process_peaks(f, fsa_file, peaks_ps, peaks_fa):
     return PeakDiffInfo(fsa_file, matched_pairs, extra_peaks_ps, peaks_fa)
 
 
-def get_peaks(filename):
-
-    # get lines from output file about processed peaks
-    f = open(filename)
-    lines = f.readlines()
-    f.close()
-
-    all_peaks = {}
-    peaks = []
-
-    last_file=""
-
-    # get first line and use this to see what type of output we have
-    firstline = lines[0]
-    names = firstline.split(',')
-
-    ind = {}
-
-    # first identify which item in names is Dye/Sample Peak. All items after this are shifted by one because Dye entries
-    # have a comma
-    try:
-        ind['Dye/Sample Peak'] = names.index("Dye/Sample Peak")
-    except KeyError:
-        print("didn't find Dye/Sample Peak in csv file!")
-        exit(5)
-
-    # now find the rest
-    selected_names = ['Sample File Name', 'Size', 'Height', 'Area in Point', 'Area in BP', 'Data Point']
-
-    for name in selected_names:
-        ind[name] = names.index(name)+1
-
-    selected_lines = [ line for line in lines if '"O,' in line or '"B,' in line ]
-    for line in selected_lines:
-
-        items = line.split(',')
-
-        # we assume the data lines will have one more field than the initial line... if this isn't the case,
-        # stop and figure out what's going on!
-        if len(items) != len(names)+1:
-            print(len(items)," items in data rows, expect ",len(names)+1," items")
-            exit(3)
-            
-        if items[ind['Sample File Name']] != last_file and last_file != "":
-            all_peaks[last_file] = peaks
-            peaks=[]
-            last_file = items[ind['Sample File Name']]
-        elif last_file=="":
-            peakd=[]
-            last_file = items[ind['Sample File Name']]
-        
-        size_bp  = float(items[ind['Size']]) if items[ind['Size']].strip()!="" else -1
-        height   = int(items[ind['Height']])
-        area_s   = int(items[ind['Area in Point']])
-        area_bp  = float(items[ind['Area in BP']])
-        size_s   = int(items[ind['Data Point']])
-        dye      = items[ind['Dye/Sample Peak']][1]
-
-        peak = MyPeak(dye, size_s, size_bp, area_s, area_bp, height)
-        peaks.append(peak)
-
-        
-    if last_file != "" and len(peaks)>0:
-        all_peaks[last_file] = peaks
-    
-    return all_peaks
-
-
 class MyData():
 
     def __init__(self):
         self.array = {}
 
-        
+
     def add_array(self, name, title, nbins, low, high, key=None):
 
+        if key=='B':
+            title += " (nonladder channel)"
+        elif key=='O':
+            title += " (ladder channel)"
+            
         arr = self.MyArray(nbins, low, high, title)
-
+            
         if key:
             if name in self.array.keys():
                 self.array[name][key] = arr
@@ -400,8 +394,8 @@ class MyData():
             self.array[name] = self.MyArray(nbins, low, high, title)
 
 
-    def append(self, name, dye, value):
-        self.array[name][dye].append(value)
+    def append(self, name, key, value):
+        self.array[name][key].append(value)
 
         
     def get_array(self, name, dye=None):
@@ -411,19 +405,31 @@ class MyData():
             return self.get_array(name)[dye]
 
         
-    def plot_histograms(self, histnames, nonladder=True):
+    def plot_histograms(self, histnames, nonladder=True, dirs=[]):
 
         dye = 'B' if nonladder else 'O'
         for histname in histnames:
 
             hist = self.get_array(histname, dye)
-            hist.plot_hist(plt.figure().add_subplot(111)) 
+            hist.plot_hist(plt.figure().add_subplot(111), dirs=dirs) 
 
             plt.legend()
-
+            
             pngfilename = histname + ".png"
-            plt.savefig(pngfilename)
-            plt.show()
+            plt.savefig("plots/"+pngfilename)
+            if showplots: plt.show()
+            plt.close()
+
+    def plot_histograms_matrix(self, histnames, nonladder=True, dirs=[], axes=None):
+
+        dye = 'B' if nonladder else 'O'
+        for histname in histnames:
+
+            hist = self.get_array(histname, dye)
+            if not axes:
+                axes = plt.figure().add_subplot(111)
+
+            hist.plot_hist(axes, dirs=dirs, labels=False) 
 
             
     def plot_overlay_histograms(self, names, nonladder=True):
@@ -442,46 +448,60 @@ class MyData():
             ax.set_ylabel("# entries")
             
             plt.legend()
-            plt.savefig(pngfilename)
-            plt.show()
+            plt.savefig("plots/"+pngfilename)
+            if showplots: plt.show()
+            plt.close()
 
             
-    def plot_correlations(self, names, nonladder=True, colors=False):
-
-        dye = 'B' if nonladder else 'O'
+    def plot_correlations(self, names, types=['L','L'], colors=False):
+        
+        dye1 = 'B' if types[0]=='NL' else 'O'
+        dye2 = 'B' if types[1]=='NL' else 'O'
+        dye1_title = ' (non-ladder channel)' if types[0]=='NL' else ' (ladder channel)'
+        dye2_title = ' (non-ladder channel)' if types[1]=='NL' else ' (ladder channel)'
+        
         for histname1, histname2, pngfilename in names:
 
-            arr1 = self.get_array(histname1, dye).array
-            arr2 = self.get_array(histname2, dye).array
+            arr1 = self.get_array(histname1, dye1).array_
+            arr2 = self.get_array(histname2, dye2).array_
+            
+            fullarr1 = [ val for sublist in arr1 for val in sublist ]
+            fullarr2 = [ val for sublist in arr2 for val in sublist ]
 
             if colors:
-                arr3 = self.get_array('date', dye).array
-
-                max_arr3 = max(arr3)
+                
+                arr3 = self.get_array('date', dye).array_
+                fullarr3 = [ val for sublist in arr3 for val in sublist ]
+                max_arr3 = max(fullarr3)
                 
             if not colors:
                 ax = plt.figure().add_subplot(111)
-                ax.scatter(arr1, arr2, s=1)
+                ax.scatter(fullarr2, fullarr1, s=1, label='data')
             else:
                 ax = plt.figure().add_subplot(111)
-                s = ax.scatter(arr1, arr2, c=arr3, s=0.25)
+                s = ax.scatter(fullarr2, fullarr1, c=fullarr3, s=0.25, label='data')
                 cb = plt.colorbar(s)
                 
             ax.set_title(pngfilename[:-4])
-            ax.set_xlabel(self.get_array(histname1,dye).get_title())                      
-            ax.set_ylabel(self.get_array(histname2,dye).get_title())
+            ax.set_xlabel(self.get_array(histname2,dye2).get_title()+dye2_title)                      
+            ax.set_ylabel(self.get_array(histname1,dye1).get_title()+dye1_title)
 
-            xy_line = (max(min(arr1),min(arr2)), min(max(arr1),max(arr2)))
+            xy_line = (max(min(fullarr1),min(fullarr2)), min(max(fullarr1),max(fullarr2)))
             
-            ax.plot(xy_line, xy_line, 'r-', label='y=x', linewidth=0.5)
+            ax.plot(xy_line, xy_line, 'r--', label='y=x', linewidth=0.5)
 
+            # fit to line
+            ax.plot(np.unique(fullarr2), np.poly1d(np.polyfit(fullarr2, fullarr1, 1))(np.unique(fullarr2)),
+                    label='best fit', linewidth=0.5)
+            
             if pngfilename=='bp_corr.png':
                 x = [ 15, 20, 25, 35, 50, 62, 80, 110, 120 ]
                 ax.plot(x,x, 'bx', label='ladder sizes', linewidth=.5, markersize=12)
             
-            #plt.legend()
-            plt.savefig(pngfilename)
-            plt.show()
+            plt.legend()
+            plt.savefig("plots/"+pngfilename)
+            if showplots: plt.show()
+            plt.close()
 
     class MyArray():
 
@@ -491,44 +511,61 @@ class MyData():
 
             step = (high-low)/nbins
             self.bins = np.arange(low, high+2*step, step)
-            self.array = []
+            self.array_ = []
+            self.narrays = 0
 
             
         def get_title(self):
             return self.title
 
         
-        def append(self, val):
-            self.array.append(val)
-
-            
-        def array(self):
-            return self.array
+        def append(self, idir, val):
+            while idir >= self.narrays:
+                self.array_.append([])
+                self.narrays += 1
+            self.array_[idir].append(val)
 
         
-        def plot_hist(self, axes, color=None, histtype='bar'):
+        def array(self, idir):
+            return self.array_[idir]
+
+
+        def plot_hist(self, axes, color=None, histtype='bar', dirs=[], labels=True):
 
             #self.fill_hist()
 
             width = self.bins[1] - self.bins[0]
             center = (self.bins[:-1] + self.bins[1:])/2
 
-            axes.set_xlabel(self.title)
-            axes.set_ylabel("log(# entries)")
-            
-            #axes.set_title(self.title)
-            if len(self.array)>1000:
-                axes.set_yscale('log')
+            if labels:
+                axes.set_xlabel(self.title)
                 axes.set_ylabel("log(# entries)")
+
+            # array contains a list for each input directory
+            # for now we combine into a single list and make a histogram
+            # but we could in principle select files sharing experimental setups
+            # and plot one histogram for each set of files
+            if not dirs:
+                fullarray = [ val for sublist in self.array_ for val in sublist]
             else:
-                axes.set_ylabel("# entries")
+                subarray = [ self.array(idir) for idir in dirs ]
+                fullarray = [ val for sublist in subarray for val in sublist ]
                 
+            #axes.set_title(self.title)
+            if labels:
+                if len(fullarray)>1000:
+                    axes.set_yscale('log')
+                    axes.set_ylabel("log(# entries)")
+                else:
+                    axes.set_ylabel("# entries")
+                    
                 #if np.any(self.hist):
                 #axes.bar(center, self.hist, align='center', width=width, fill=False,
                 #         edgecolor='b', linewidth=.1)
                 #axes.plot(center, self.hist, '_')
-            if len(self.array)>0:
-                axes.hist(self.array, self.bins, histtype=histtype, color=color,
+
+            if len(self.array_)>0:
+                axes.hist(fullarray, self.bins, histtype=histtype, color=color,
                           label= self.title, align='left')
 
                 

@@ -6,6 +6,7 @@ import glob
 import zipfile
 import fatools.scripts.fa as fa
 import time
+import datetime
 
 import psycopg2
 import pysftp
@@ -19,7 +20,8 @@ def main():
 
     start_time = time.time()
     
-    nrecords = 40
+    nrecords = -1
+    ndirs_to_do = 1
     use_db = True
 
     trace_dir = ""
@@ -66,9 +68,10 @@ def main():
         for file_var_name in file_var_names:
             ex += file_var_name + ", "
         ex = ex[:-2] + " " # remove comma
-        ex += "FROM ce_experiments " + \
-              "LIMIT " + str(nrecords) + " " + \
-              "OFFSET 20 ";
+        ex += "FROM ce_experiments "
+        if nrecords>-1:
+            ex += "LIMIT " + str(nrecords) + " "
+        ex += "OFFSET 20 ";
 
         cur.execute(ex)
         rows = cur.fetchall()
@@ -77,21 +80,29 @@ def main():
         if not os.path.isdir("../output"):
             os.makedirs("../output")
 
+        ndirsdone=0
         done = False
         for row in rows:
 
-            if done: break
+            if done or ndirsdone >= ndirs_to_do:
+                break
 
             file_vars = {}
             for i in range(len(file_var_names)):
                 file_vars[file_var_names[i]] = row[i]
 
+            submission_date = file_vars['submission_date']
+            print("submission_date: ", submission_date)
+            
+            if submission_date < datetime.date(2015,1,1):
+                continue
+            
             id = file_vars['id']
             zipped_files = file_vars['data_file_name']
             peaks_table_file_name = file_vars['peaks_table_file_name']
             file_root = zipped_files[:-4]
 
-            if file_root == "Archive": # skip these for now... the script doesn't like multiple directories with the same name
+            if file_root == "Archive" or file_root=="GL10-191AB": # skip these for now... the script doesn't like multiple directories with the same name
                 continue
 
             if trace_dir!="":
@@ -145,6 +156,8 @@ def main():
 
             print("file_root: ", file_root)
 
+            ndirsdone += 1
+            
         if scp_files:
             sftp.close()
 
@@ -161,6 +174,7 @@ def main():
                    '--nonladder_rfu_threshold=150',
                    '--nonladder_peak_window=5',
                    '--call',
+                   '--normalize',
                    #'--ladderplot',
                    '--allelemethod=localsouthern',
                    '--baselinemethod=minimum',

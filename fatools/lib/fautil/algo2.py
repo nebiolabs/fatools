@@ -11,9 +11,11 @@ from sortedcontainers import SortedListWithKey
 
 from scipy import signal, ndimage
 from scipy.optimize import curve_fit
-from peakutils import indexes
-
+from scipy.stats import norm
 import pandas as pd
+import matplotlib.pyplot as plt
+
+from peakutils import indexes
 
 import attr
 
@@ -225,7 +227,7 @@ def call_peaks( channel, params, func, min_rtime, max_rtime ):
         allele.width_bp = allele.end_bp - allele.begin_bp
         size_delta = func(allele.rtime+1)[0] - size
         allele.area_bp = float(allele.area) * size_delta
-        
+
         if is_verbosity(4):
             print(allele)
 
@@ -278,6 +280,13 @@ def align_peaks(channel, params, ladder, anchor_pairs=None):
     print('>>> RSS:', rss)
     #import pprint; pprint.pprint( aligned_peaks )
     return result
+
+def normalize_peaks(channel, params):
+
+    scale_factor = channel.fsa.area_scale_factor
+    for allele in channel.get_alleles(False):
+        allele.area_bp_corr = allele.area_bp * scale_factor
+        
 
 # helper functions
 
@@ -445,7 +454,7 @@ def measure_peaks(peaks, channel, baseline_correct = True, offset=0):
             p.area -= baseline * p.wrtime
             p.rfu -= baseline
             p.rfu = max(p.rfu, 0.)
-        
+
         if p.rfu==0.: continue
         
         p.beta = p.area / p.rfu
@@ -834,6 +843,68 @@ class TraceChannel(object):
     dye_wavelength = attr.ib()
     raw_channel = attr.ib()
     smooth_channel = attr.ib()
+
+
+def ladder_area_means(ladders, fsa_list):
+
+    # get mean size for each ladder step
+    areas = [ [] for i in range(len(ladders)) ]
+    for (fsa, fsa_index) in fsa_list:
+
+        print("fsa: ", fsa.filename)
+        
+        ladder = fsa.get_ladder_channel()
+
+        for i in range(len(ladders)):
+
+            alleles = ladder.get_alleles()
+            min_index = min(range(len(alleles)),
+                            key = lambda j: abs(ladders[i] - alleles[j].size))
+            areas[i].append(alleles[min_index].area_bp)
+
+            """
+            # iterate through alleles and find the closest one            
+            best_area = -1
+            best_val = 99999
+            for allele in ladder.get_alleles():
+                val = abs(allele.size - ladders[i])
+                if val < best_val:
+                    best_val = val
+                    best_area = allele.area_bp
+            areas[i].append(best_area)
+            """
+            
+    means = []
+    for arr in areas:
+        mu, sigma = norm.fit(arr)
+        means.append(mu)
+
+        #axes = plt.figure().add_subplot(111)
+        #axes.hist(arr)
+        #plt.show()
+
+        #print("means: ", means)
+
+    return means
+
+def set_scale_factor(ladder, ladder_area_means):
+
+    ladder_sizes = ladder.fsa.panel.get_ladder()['sizes']
+    alleles = ladder.get_alleles()
+
+    # calculate scale factor for each fsa
+    sum_area_mean = 0.
+    sum_area2 = 0.
+
+    for allele in alleles:
+        # get ladder step closest to this allele
+        min_index = min(range(len(ladder_sizes)),
+                        key = lambda i: abs(ladder_sizes[i] - allele.size))
+        
+        sum_area_mean  += allele.area_bp * ladder_area_means[min_index] 
+        sum_area2 += allele.area_bp * allele.area_bp
+
+    ladder.fsa.area_scale_factor = sum_area_mean / sum_area2 
 
 
 def b(txt):
