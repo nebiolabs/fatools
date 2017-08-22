@@ -446,7 +446,7 @@ def do_listpeaks( args, fsa_list, dbh ):
         out_stream.write('SAMPLE\tFILENAME   \tDYE\tRTIME\tSIZE\tHEIGHT\tAREA\tSCORE\n')
     elif args.peaks_format == 'peakscanner':
         out_stream.write("Dye/Sample Peak,Sample File Name,Type,Size,Height,Area in Point,Area in BP,Corrected Area in BP,Data Point,Begin Point,")
-        out_stream.write("Begin BP,End Point,End BP,Width in Point,Width in BP,User Comments,User Edit\n")
+        out_stream.write("Begin BP,End Point,End BP,Width in Point,Width in BP,Score,User Comments,User Edit\n")
 
     else:
         raise RuntimeError("Unknown value for args.peaks_format")
@@ -477,8 +477,8 @@ def do_listpeaks( args, fsa_list, dbh ):
                     out_stream.write('%6s\t%10s\t%3s\t%d\t%d\t%5i\t%3.2f\t%3.2f\n' %
                                      (fsa_index, fsa.filename[:-4], color, p.rtime, p.size, p.height, p.area, p.qscore))
                 else:
-                    out_stream.write('"%s, %i",%s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f,,\n' %
-                                     (color, i, fsa.filename, p.type, p.size, p.height, p.area, p.area_bp, p.area_bp_corr, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp))
+                    out_stream.write('"%s, %i",%s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f, %f,,,\n' %
+                                     (color, i, fsa.filename, p.type, p.size, p.height, p.area, p.area_bp, p.area_bp_corr, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp,p.qscore))
                 i = i+1 
 
         out_stream.close()

@@ -165,12 +165,13 @@ class FSAMixIn(object):
 
     __slots__ = [   'panel', 'channels', 'excluded_markers', 'filename',
                     'date', 'rss', 'z', 'score', 'nladder', 'duration',
-                    'allele_fit_func', 'area_scale_factor', 'min_rtime', 'max_rtime',
-                    'scan_done', 'align_done', 'call_done'
+                    'allele_fit_func', 'area_scale_factor_params', 'area_scale_factor',
+                    'min_rtime', 'max_rtime', 'scan_done', 'align_done', 'call_done'
                 ]
 
     def __init__(self):
-        self.area_scale_factor = -1
+        self.area_scale_factor_params = [] # array of parameters for polynomial fit of scale factors vs. ladder sie
+        self.area_scale_factor = -1 # single scale factor for all ladders
         self.scan_done = False
         self.call_done = False
 

@@ -283,10 +283,12 @@ def align_peaks(channel, params, ladder, anchor_pairs=None):
 
 def normalize_peaks(channel, params):
 
-    scale_factor = channel.fsa.area_scale_factor
+    #scale_factor = channel.fsa.area_scale_factor
+    sf_poly1d = np.poly1d(channel.fsa.area_scale_factor_params)
+    
     for allele in channel.get_alleles(False):
-        allele.area_bp_corr = allele.area_bp * scale_factor
-        
+        #allele.area_bp_corr = allele.area_bp * scale_factor
+        allele.area_bp_corr = allele.area_bp * sf_poly1d(allele.size)
 
 # helper functions
 
@@ -370,7 +372,7 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
     # filter peaks by minimum rfu and minimum rfu ratio
 
     def pass_threshold(h, params, maxheight):
-        return ((h >= params.min_rfu_ratio * maxheight) or
+        return ((h >= params.min_rfu_ratio * maxheight) and
                 (h >= params.min_rfu))
         
     max_rfu = max(data)
@@ -851,8 +853,6 @@ def ladder_area_means(ladders, fsa_list):
     areas = [ [] for i in range(len(ladders)) ]
     for (fsa, fsa_index) in fsa_list:
 
-        print("fsa: ", fsa.filename)
-        
         ladder = fsa.get_ladder_channel()
 
         for i in range(len(ladders)):
@@ -896,6 +896,9 @@ def set_scale_factor(ladder, ladder_area_means):
     sum_area_mean = 0.
     sum_area2 = 0.
 
+    size_bp = []
+    scale_factors = []
+
     for allele in alleles:
         # get ladder step closest to this allele
         min_index = min(range(len(ladder_sizes)),
@@ -904,7 +907,21 @@ def set_scale_factor(ladder, ladder_area_means):
         sum_area_mean  += allele.area_bp * ladder_area_means[min_index] 
         sum_area2 += allele.area_bp * allele.area_bp
 
-    ladder.fsa.area_scale_factor = sum_area_mean / sum_area2 
+        size_bp.append(allele.size)
+        scale_factors.append(ladder_area_means[min_index]/allele.area_bp)
+
+    ladder.fsa.area_scale_factor = sum_area_mean / sum_area2 # this is a single scale factor for all ladders
+    ladder.fsa.area_scale_factor_params = np.polyfit(size_bp, scale_factors, 1) # parameterization of s.f.
+
+    #plt.figure()
+    #plt.plot(size_bp, scale_factors)
+    #plt.plot(size_bp, np.poly1d(ladder.fsa.area_scale_factor_params)(size_bp))
+    #plt.axis([10,125,.625,2.55])
+    #plt.xlabel('ladder size (base pair units)')
+    #plt.ylabel('scale factor required to scale to mean ladder area')
+    #plt.savefig('areasf_v_sizebp_'+ladder.fsa.filename[:-4]+'.png')
+    #plt.show()
+    #plt.close()
 
 
 def b(txt):
@@ -978,7 +995,6 @@ def generate_scoring_function( strict_params, relax_params ):
             return (score, msg)
 
         raise RuntimeError("Shouldn't be here!")
-
 
     return _scoring_func
 

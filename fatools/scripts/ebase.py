@@ -1,6 +1,7 @@
 #!/usr/bin/python
 #
 
+import sys
 import os
 import glob
 import zipfile
@@ -10,6 +11,7 @@ import datetime
 
 import psycopg2
 import pysftp
+import argparse
 
 # additional info about test from database to write to separate output file
 file_var_names = ["id", "submission_date", "operator_id", "data_file_name", "peaks_table_file_name",
@@ -18,19 +20,40 @@ file_var_names = ["id", "submission_date", "operator_id", "data_file_name", "pea
 
 def main():
 
-    start_time = time.time()
+    p = argparse.ArgumentParser('ebase')
     
+    p.add_argument('--tracedir', default='',
+                   help = "input directory containing trace files")
+    
+    p.add_argument('--filelist', default='',
+                   help = "space delimited list of input files in tracedir directory")
+    
+    args = p.parse_args()
+    
+    start_time = time.time()
+
     nrecords = -1
     ndirs_to_do = 1
     use_db = True
 
-    trace_dir = ""
-    file_list = ""
-
     scp_files = True # only used if use_db = True
     overwrite_output = True
     
-    if scp_files:
+    trace_dir = ""
+    file_list = ""
+    
+    # command line arguments
+    if args.tracedir:
+        trace_dir = args.tracedir
+        use_db = False
+
+    if args.filelist:
+        file_list = [item for item in args.filelist.split(' ')]
+
+    print("trace_dir: ", trace_dir)
+    print("file_list: ", file_list)
+    
+    if scp_files and use_db:
         f = open('dbinfo')
         lines = f.readlines()
         f.close()

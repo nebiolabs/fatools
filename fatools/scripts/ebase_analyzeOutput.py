@@ -77,16 +77,15 @@ def main():
 
     for i in range(9):
         data.add_array('h_peak'+str(i),  'height of peak '+str(i+1)+' (rfu)', 50, 0, 32000, key='O')
-        data.add_array('fwhm_peak'+str(i),  'FWHM of peak '+str(i+1)+' (rfu)', 20, 0, 20, key='O')
         data.add_array('area_bp_peak'+str(i), 'area of peak '+str(i+1)+' (bp units)', 50, 0, 40000, key='O')
         data.add_array('area_bp_corr_peak'+str(i), 'area of peak '+str(i+1)+' corrected (bp units)', 50, 0, 40000, key='O')
 
         for j in range(i+1,9):
             data.add_array('area_bp_p'+str(j)+'_p'+str(i), 'ratio of areas of peak '+str(j+1)+' to peak '+str(i+1),
                            20, 0.5,2.5, key='O')
-            #data.add_array('area_bp_corr_p'+str(j)+'_p'+str(i),
-            #               'ratio of corrected areas of peak '+str(j+1)+' to peak '+str(i+1),
-            #               20, 0.5,2.5, key='O')
+            data.add_array('area_bp_corr_p'+str(j)+'_p'+str(i),
+                           'ratio of corrected areas of peak '+str(j+1)+' to peak '+str(i+1),
+                           20, 0.5,2.5, key='O')
             
     for idir in range(len(dirnames)):
         dir = dirnames[idir]
@@ -168,22 +167,18 @@ def main():
 
     data.plot_histograms(['area_bp_peak0'], nonladder=False, dirs=[])
     data.plot_histograms(['area_bp_corr_peak0'], nonladder=False, dirs=[])
-    #data.plot_histograms(['fwhm_peak0'], nonladder=False, dirs=[])
     
     for i in range(1,9):
         
         data.plot_histograms(['area_bp_peak'+str(i)], nonladder=False, dirs=[])
         data.plot_histograms(['area_bp_corr_peak'+str(i)], nonladder=False, dirs=[])
 
-        #data.plot_histograms(['fwhm_peak'+str(i)], nonladder=False, dirs=[])
-        
         data.plot_correlations([ ('h_peak'+str(i), 'h_peak0', 'peak'+str(i)+'_peak0.png')], ['L','L'], False)
-        data.plot_correlations([ ('area_bp_peak'+str(i), 'area_bp_peak0','area_bp_peak'+str(i)+'_v_peak0.png')], ['L','L'], False)
-        data.plot_correlations([ ('area_bp_corr_peak'+str(i), 'area_bp_corr_peak0','area_bp_corr_peak'+str(i)+'_v_peak0.png')], ['L','L'], False)
-        #data.plot_correlations([ ('fwhm_peak'+str(i), 'fwhm_peak0', 'fwhm_peak'+str(i)+'_peak0.png')], ['L','L'], False)
+        data.plot_correlations([ ('area_bp_peak'+str(i), 'area_bp_peak0','area_bp_peak'+str(i)+'_v_peak0.png')], ['L','L'], False, [4000,13000,3500,20000])
+        data.plot_correlations([ ('area_bp_corr_peak'+str(i), 'area_bp_corr_peak0','area_bp_corr_peak'+str(i)+'_v_peak0.png')], ['L','L'], False, [4000,13000,3500,20000])
         if i>1:
-            data.plot_correlations([ ('area_bp_peak'+str(i), 'area_bp_peak'+str(i-1),'area_bp_peak'+str(i)+'_peak'+str(i-1)+'.png')], ['L','L'], False)
-            data.plot_correlations([ ('area_bp_corr_peak'+str(i), 'area_bp_corr_peak'+str(i-1),'area_bp_corr_peak'+str(i)+'_peak'+str(i-1)+'.png')], ['L','L'], False)
+            data.plot_correlations([ ('area_bp_peak'+str(i), 'area_bp_peak'+str(i-1),'area_bp_peak'+str(i)+'_peak'+str(i-1)+'.png')], ['L','L'], False, [4000,13000,3500,20000])
+            data.plot_correlations([ ('area_bp_corr_peak'+str(i), 'area_bp_corr_peak'+str(i-1),'area_bp_corr_peak'+str(i)+'_peak'+str(i-1)+'.png')], ['L','L'], False, [4000,13000,3500,20000])
 
     fig = plt.figure()
     full_ax = fig.add_subplot(111)
@@ -191,7 +186,7 @@ def main():
         for j in range(i+1,9):
             ax = fig.add_subplot(9,9,j*9+i+1, sharex = full_ax, sharey = full_ax)
             data.plot_histograms_matrix(['area_bp_p'+str(j)+'_p'+str(i)], nonladder=False, dirs=[], axes=ax)
-            ax.text(1.5,4,'p'+str(j+1)+'/p'+str(i+1))            
+            ax.text(1.5,4,'p'+str(j+1)+'/p'+str(i+1))
     full_ax.set_xlabel("Peak-to-peak ratio of areas")
     full_ax.set_ylabel("# entries")
     full_ax.tick_params(labelcolor='w', top='off', bottom='off', left='off', right='off')
@@ -201,6 +196,25 @@ def main():
     full_ax.spines['right'].set_color('none')
     if showplots: plt.show()
     plt.savefig('plots/area_ratio_matrix.png')
+    plt.close()
+    
+    fig2 = plt.figure()
+    full_ax2 = fig.add_subplot(111)
+    for i in range(9):
+        for j in range(i+1,9):
+            ax2 = fig2.add_subplot(9,9,j*9+i+1, sharex = full_ax2, sharey = full_ax2)
+            data.plot_histograms_matrix(['area_bp_corr_p'+str(j)+'_p'+str(i)], nonladder=False, dirs=[], axes=ax2)
+            ax2.text(1.5,4,'p'+str(j+1)+'/p'+str(i+1))            
+            
+    full_ax2.set_xlabel("Peak-to-peak ratio of areas")
+    full_ax2.set_ylabel("# entries")
+    full_ax2.tick_params(labelcolor='w', top='off', bottom='off', left='off', right='off')
+    full_ax2.spines['top'].set_color('none')
+    full_ax2.spines['bottom'].set_color('none')
+    full_ax2.spines['left'].set_color('none')
+    full_ax2.spines['right'].set_color('none')
+    if showplots: plt.show()
+    plt.savefig('plots/area_corr_ratio_matrix.png')
     plt.close()
     
     
@@ -280,23 +294,21 @@ def fill_area_arrays(peak_info_nl, peak_info_la, data, idir):
 
     if (len(peak_info_la.matched_pairs)==9 and len(peak_info_nl.matched_pairs)>0):
 
-        heights_la, areas_la, areas_corr_la, fwhm_la = [], [], [], []
+        heights_la, areas_la, areas_corr_la = [], [], []
         for pair in peak_info_la.matched_pairs:
             heights_la.append(pair.fa.height)
             areas_la.append(pair.fa.area_bp)
             areas_corr_la.append(pair.fa.area_bp_corr)
-            fwhm_la.append(pair.fa.fwhm)
 
         for i in range(9):
             data.get_array('h_peak'+str(i), 'O').append(idir, heights_la[i])
             data.get_array('area_bp_peak'+str(i), 'O').append(idir, areas_la[i])
             data.get_array('area_bp_corr_peak'+str(i), 'O').append(idir, areas_corr_la[i])
-            data.get_array('fwhm_peak'+str(i), 'O').append(idir, fwhm_la[i])
 
             for j in range(i+1,9):
                 if areas_la[j]>0:
                     data.get_array('area_bp_p'+str(j)+'_p'+str(i),'O').append(idir, areas_la[j]/areas_la[i])
-                    #data.get_array('area_bp_corr_p'+str(j)+'_p'+str(i),'O').append(idir, areas_corr_la[j]/areas_corr_la[i])
+                    data.get_array('area_bp_corr_p'+str(j)+'_p'+str(i),'O').append(idir, areas_corr_la[j]/areas_corr_la[i])
 
 def process_peaks(f, fsa_file, peaks_ps, peaks_fa):
     
@@ -453,7 +465,7 @@ class MyData():
             plt.close()
 
             
-    def plot_correlations(self, names, types=['L','L'], colors=False):
+    def plot_correlations(self, names, types=['L','L'], colors=False, axisranges=[]):
         
         dye1 = 'B' if types[0]=='NL' else 'O'
         dye2 = 'B' if types[1]=='NL' else 'O'
@@ -485,6 +497,8 @@ class MyData():
             ax.set_title(pngfilename[:-4])
             ax.set_xlabel(self.get_array(histname2,dye2).get_title()+dye2_title)                      
             ax.set_ylabel(self.get_array(histname1,dye1).get_title()+dye1_title)
+            if axisranges:
+                ax.axis(axisranges)
 
             xy_line = (max(min(fullarr1),min(fullarr2)), min(max(fullarr1),max(fullarr2)))
             
