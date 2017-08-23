@@ -96,7 +96,8 @@ def main():
 
         # get test info
         test_info = {}
-        with open(dir+"_info.txt", 'r') as f:
+        info_filename = dir[dir.index('_')+1:] + "_info.txt"
+        with open(info_filename, 'r') as f:
             for line in f:
                 line_info = line.split(':')
                 test_info[line_info[0]] = line_info[1].strip()

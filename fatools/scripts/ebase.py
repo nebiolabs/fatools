@@ -33,7 +33,7 @@ def main():
     start_time = time.time()
 
     nrecords = -1
-    ndirs_to_do = 1
+    ndirs_to_do = 40
     use_db = True
 
     scp_files = True # only used if use_db = True
@@ -50,9 +50,6 @@ def main():
     if args.filelist:
         file_list = [item for item in args.filelist.split(' ')]
 
-    print("trace_dir: ", trace_dir)
-    print("file_list: ", file_list)
-    
     if scp_files and use_db:
         f = open('dbinfo')
         lines = f.readlines()
@@ -92,6 +89,7 @@ def main():
             ex += file_var_name + ", "
         ex = ex[:-2] + " " # remove comma
         ex += "FROM ce_experiments "
+        ex += "ORDER BY submission_date DESC "
         if nrecords>-1:
             ex += "LIMIT " + str(nrecords) + " "
         ex += "OFFSET 20 ";
@@ -115,7 +113,6 @@ def main():
                 file_vars[file_var_names[i]] = row[i]
 
             submission_date = file_vars['submission_date']
-            print("submission_date: ", submission_date)
             
             if submission_date < datetime.date(2015,1,1):
                 continue
@@ -135,13 +132,18 @@ def main():
                     continue
 
             basedir = "/var/www/ebase/shared/shared_uploads/ce_experiments/" + str(id)
-            print("analyzing ", basedir+"/"+file_root)
+            #print("analyzing ", basedir+"/"+file_root)
 
             full_zipped_files_name = basedir + "/" + zipped_files
             full_peaks_table_file_name = basedir + "/" + peaks_table_file_name
 
             if scp_files:
-                sftp.get(full_zipped_files_name)
+                try:
+                    sftp.get(full_zipped_files_name)
+                except:
+                    os.remove(zipped_files)
+                    continue
+                
                 full_zipped_files_name = zipped_files
                 sftp.get(full_peaks_table_file_name)
                     
@@ -149,14 +151,13 @@ def main():
             # create output with info about test
             f = open(file_root+"_info.txt", 'w')
             for key, item in file_vars.items():
-                print("key, item: ", key,  item)
                 f.write("%s: %s\n" % (key, str(item)))
             f.close()
-            print("made info, cwd: ", os.getcwd())
 
-            if not os.path.isdir(file_root):
-                os.makedirs(file_root)
-                os.chdir(file_root)
+            output_dir = str(id) + "_" + file_root
+            if not os.path.isdir(output_dir):
+                os.makedirs(output_dir)
+                os.chdir(output_dir)
                 os.rename("../"+zipped_files,zipped_files)
                 os.rename("../"+peaks_table_file_name,peaks_table_file_name)
                 os.rename("../"+file_root+"_info.txt",file_root+"_info.txt")
@@ -175,9 +176,9 @@ def main():
                        os.rename(f,"../"+f)
                    os.chdir("..")
                 os.chdir("..")
-            files[id] = file_root
+            files[id] = output_dir
 
-            print("file_root: ", file_root)
+            print("file_root: ", output_dir)
 
             ndirsdone += 1
             

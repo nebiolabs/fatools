@@ -52,8 +52,11 @@ def get_peaks(filename):
     if fatools_type:
         ind['Type'] = names.index('Type')+1
         ind['Corrected Area in BP'] = names.index('Corrected Area in BP')+1
+        ind['Score'] = names.index('Score')+1
     else:
-        ind['Corrected Area in BP'] = -1        
+        ind['Corrected Area in BP'] = -1
+        ind['Score'] = -1
+        
     # now find the rest
     selected_names = ['Sample File Name', 'Size', 'Height', 'Area in Point', 'Area in BP',
                       'Data Point']
@@ -69,7 +72,7 @@ def get_peaks(filename):
         # we assume the data lines will have one more field than the initial line... if this isn't the case,
         # stop and figure out what's going on!
         if len(items) != len(names)+1:
-            print(len(items)," items in data rows, expect ",len(names)+1," items")
+            print(len(items)," items in data rows, expect ",len(names)+1," names")
             exit(3)
             
         if items[ind['Sample File Name']] != last_file and last_file != "":
