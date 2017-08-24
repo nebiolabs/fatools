@@ -15,9 +15,11 @@ requirements:
     - matplotlib
     - pandas
     - attrs
+    - setuptools
     
   run:
     - python
-
+    - setuptools
+    
 about:
   home: https://github.com/nebiolabs/fatools.git
