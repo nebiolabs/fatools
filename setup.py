@@ -10,9 +10,9 @@ with open(os.path.join(here, 'CHANGES.md')) as f:
 
 requires = [
     'numpy',
+    'cython',
     'scipy',
     'matplotlib',
-    'pyyaml',
     'pandas',
     'attrs',
 ]
