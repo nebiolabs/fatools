@@ -31,6 +31,10 @@ class ChannelMixIn(object):
     attrs: alleles, fsa, status
     """
 
+    __slots__ = [   'data', 'dye', 'wavelen', 'alleles', 'fsa', 'status', 'marker',
+                    'mma', 'mmb', 'p80',
+                ]
+
     def add_allele(self, allele):
         """ add this allele to channel """
         raise NotImplementedError()
@@ -164,7 +168,7 @@ class FSAMixIn(object):
     """
 
     __slots__ = [   'panel', 'channels', 'excluded_markers', 'filename',
-                    'date', 'rss', 'z', 'score', 'nladder', 'duration',
+                    'date', 'rss', 'z', 'score', 'nladder', 'duration', 'status',
                     'allele_fit_func', 'area_scale_factor_params', 'area_scale_factor',
                     'min_rtime', 'max_rtime', 'scan_done', 'align_done', 'call_done'
                 ]
