@@ -221,11 +221,14 @@ def do_scan( args, dbh ):
     scanning_parameter = params.Params()
     assay_list = get_assay_list( args, dbh )
 
+    """
     if args.peakcachedb:
         import leveldb
         peakdb = leveldb.LevelDB(args.peakcachedb, create_if_missing=False)
     else:
         peakdb = None
+    """
+    peakdb = None
 
     if args.method:
         scanning_parameter.ladder.method = args.method
@@ -348,7 +351,7 @@ def do_postannotate(args, dbh):
 
 def do_findpeaks( args, dbh ):
 
-    import leveldb
+    #import leveldb
     from fatools.lib import params
 
     cerr('Finding and caching peaks...')
@@ -356,11 +359,14 @@ def do_findpeaks( args, dbh ):
     if not args.peakcachedb:
         cexit('ERR - please provide cache db filename')
 
+    """
     # opening LevelDB database
     if args.peakcachedb == '-':
         peakdb = None
     else:
         peakdb = leveldb.LevelDB(args.peakcachedb)
+    """
+    peakdb = None
 
     scanning_parameter = params.Params()
     assay_list = get_assay_list( args, dbh )

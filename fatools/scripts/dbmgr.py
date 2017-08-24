@@ -222,8 +222,8 @@ def do_dbmgr(args, dbh = None, warning=True):
         do_exportfsa(args, dbh)
     elif args.renamefsa is not False:
         do_renamefsa(args, dbh)
-    elif args.viewpeakcachedb is not False:
-        do_viewpeakcachedb(args, dbh)
+    #elif args.viewpeakcachedb is not False:
+    #    do_viewpeakcachedb(args, dbh)
     elif args.dumppeaks is not False:
         do_dumppeaks(args, dbh)
     else:
@@ -695,7 +695,7 @@ def do_exportpeaks(args, dbh):
 
 
 
-def do_viewpeakcachedb(args, dbh):
+"""def do_viewpeakcachedb(args, dbh):
 
     from leveldb import LevelDB
     from collections import defaultdict
@@ -711,7 +711,7 @@ def do_viewpeakcachedb(args, dbh):
     cout('Peakcache DB: %s' % args.peakcachedb)
     for (k,v) in batches.items():
         cout('\t%s\t%4d' % (k.decode(),v))
-
+"""
 
 def do_showsample(args, dbh):
 

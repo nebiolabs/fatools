@@ -14,9 +14,8 @@ requires = [
     'matplotlib',
     'pyyaml',
     'pandas',
-    'leveldb',
     'attrs',
-    ]
+]
 
 setup(name='fatools',
       version='0.7',
@@ -35,8 +34,8 @@ setup(name='fatools',
       install_requires=requires,
       tests_require=requires,
       test_suite="fatools",
-      entry_points="""\
-      [console_scripts]
-      fatools = fatools.scripts.run:main
-      """,
+      #entry_points="""\
+      #[console_scripts]
+      #fatools = fatools.scripts.run:main
+      #""",
       )
