@@ -15,15 +15,17 @@ requires = [
     'matplotlib',
     'pandas',
     'attrs',
-]
+    'transaction',
+    'sortedcontainers',
+    'peakutils',
+    ]
 
 setup(name='fatools',
       version='0.7',
       description='fatools',
       long_description=README + '\n\n' + CHANGES,
       classifiers=[
-        "Programming Language :: Python",
-        ],
+          "Programming Language :: Python", ],
       author='Hidayat Trimarsanto',
       author_email='anto@eijkman.go.id',
       url='',
@@ -34,8 +36,7 @@ setup(name='fatools',
       install_requires=requires,
       tests_require=requires,
       test_suite="fatools",
-      #entry_points="""\
-      #[console_scripts]
-      #fatools = fatools.scripts.run:main
-      #""",
-      )
+      entry_points="""\
+      [console_scripts]
+      fatools = fatools.scripts.run:main
+      """, )

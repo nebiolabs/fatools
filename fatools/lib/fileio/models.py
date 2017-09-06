@@ -74,7 +74,7 @@ class Allele(AlleleMixIn):
 
 class Channel(ChannelMixIn):
 
-    __slots__ = []
+    __slots__ = [ 'firstderiv' ]
 
     Allele = Allele
 
@@ -140,7 +140,7 @@ class FSA(FSAMixIn):
                 except:
                     cerr('E: uploading failed, will recreate cache')
 
-        fsa.create_channels()
+        fsa.create_channels(params)
         if cache and os.path.exists('.fatools_caches/channels'):
             for c in fsa.channels: c.fsa = None
             pickle.dump(fsa.channels, open(cache_file, 'wb'))

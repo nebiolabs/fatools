@@ -3,7 +3,7 @@ package:
   version: "0.2"
 
 source:
-  git_rev: v0.2
+  git_rev: v0.3
   git_url: https://github.com/nebiolabs/fatools.git
 
 requirements:
@@ -11,10 +11,12 @@ requirements:
     - python
     - setuptools
     - attrs
+    - pandas
     
   run:
     - python
     - attrs
+    - pandas
     
 about:
   home: https://github.com/nebiolabs/fatools.git
