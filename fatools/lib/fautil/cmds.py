@@ -4,7 +4,7 @@ from fatools.lib import params
 from fatools.lib.utils import cerr, cout, cverr, cexit, tokenize, detect_buffer, set_verbosity, is_verbosity
 from fatools.lib.fautil.algo2 import LadderMismatchException
 
-import sys, argparse, yaml, csv, os
+import sys, argparse, csv, os
 from io import StringIO
 
 def init_argparser(parser=None):
@@ -499,6 +499,7 @@ def open_fsa( args, _params ):
     else:
         with open(args.panelfile) as f:
             # open a YAML file that describe panel sets
+            import yaml
             Panel.upload(yaml.load(f))
 
     if not args.markerfile:
@@ -567,7 +568,7 @@ def open_fsa( args, _params ):
 
     elif args.indir:
         import glob
-        for fsa_filename in glob.glob(args.indir+"/*.fsa"):
+        for fsa_filename in sorted(glob.glob(args.indir+"/*.fsa")):
 
             fsa_filename = fsa_filename.strip()
             fsa = FSA.from_file(fsa_filename, panel, _params, cache = not args.no_cache)
