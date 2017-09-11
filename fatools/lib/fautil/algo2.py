@@ -62,6 +62,7 @@ def scan_peaks(channel, parameters, offset=0):
         allele = channel.Allele(
             rtime = p.rtime,
             rfu = p.rfu,
+            rfu_uncorr = p.rfu_uncorr,
             area = p.area,
             brtime = p.brtime,
             ertime = p.ertime,
@@ -333,7 +334,7 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
 
         data_np = np.asarray(data)
 
-        
+
         firstderiv = signal.savgol_filter(data_np, winsize, degree, deriv=1)
         
         channel.firstderiv = firstderiv.tolist()
@@ -354,7 +355,7 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
             
         """import matplotlib.pyplot as plt
         plt.plot(data, label="data")
-        plt.plot(channel.firstderiv, 'x',label="first deriv")
+        plt.plot(channel.firstderiv, '-',label="first deriv")
         plt.plot((0.,6000.),(0.,0.),'--')
         plt.legend()
         plt.show()"""
@@ -372,9 +373,9 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
     # filter peaks by minimum rfu and minimum rfu ratio
 
     def pass_threshold(h, params, maxheight):
-        return ((h >= params.min_rfu_ratio * maxheight) and
-                (h >= params.min_rfu))
-        
+        return ((h >= params.min_rfu) and
+                (h >= params.min_rfu_ratio * maxheight))
+
     max_rfu = max(data)
     peaks = [ Peak( int(i), int(data[i]) ) for i in indices
               if ( pass_threshold(data[i], params, max_rfu) and
@@ -386,7 +387,6 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
     measure_peaks(peaks, channel, params.baseline_correct, offset)
 
     # check the thresholds again
-    #print("peaks: ", peaks)
     max_rfu = max([peak.rfu for peak in peaks])
     peaks = [ peak for peak in peaks if pass_threshold(peak.rfu,params,max_rfu) ]
     
@@ -452,7 +452,8 @@ def measure_peaks(peaks, channel, baseline_correct = True, offset=0):
         baseline = min(data[p.brtime],data[p.ertime])
         p.wrtime = p.ertime - p.brtime
 
-        if baseline_correct:
+        p.rfu_uncorr = p.rfu
+        if baseline_correct:            
             p.area -= baseline * p.wrtime
             p.rfu -= baseline
             p.rfu = max(p.rfu, 0.)
@@ -779,8 +780,7 @@ class NormalizedTrace(object):
         return tuple()
 
 
-def normalize_baseline( raw, params, savgol_size=11, savgol_order=5,
-                tophat_factor = 0.01):
+def normalize_baseline( raw, params, is_ladder):
     """
     params.medwin_size
     params.savgol_order
@@ -789,6 +789,14 @@ def normalize_baseline( raw, params, savgol_size=11, savgol_order=5,
 
     medwinsize = params.baselinewindow
 
+    if is_ladder:
+        savgol_size = params.ladder.smoothing_window
+        savgol_order = params.ladder.smoothing_order
+    else:
+        savgol_size = params.nonladder.smoothing_window
+        savgol_order = params.nonladder.smoothing_order
+
+        
     """
     baseline_raw_med = signal.medfilt(raw, 499)
     baseline_med = signal.savgol_filter( baseline_raw_med, 499, savgol_order)
@@ -849,14 +857,28 @@ def normalize_baseline( raw, params, savgol_size=11, savgol_order=5,
     else:
         raise RuntimeError("invalid option for baseline method")
 
-    baseline = signal.savgol_filter( baseline_raw, medwinsize, savgol_order)
+    baseline = signal.savgol_filter( baseline_raw, medwinsize, 5)
     corrected_baseline = raw - baseline
     np.maximum(corrected_baseline, 0, out=corrected_baseline)
-    #savgol = signal.savgol_filter(corrected_baseline, savgol_size, savgol_order)
-    #smooth = ndimage.white_tophat(savgol, None,
-    #                np.repeat([1], int(round(raw.size * tophat_factor))))
 
-    #return NormalizedTrace( signal=smooth, baseline = baseline )
+    #print("savgol_size: ", savgol_size,", savgol_order: ", savgol_order)
+
+    """
+    plt.figure()
+    plt.plot(corrected_baseline, color='red')
+
+    plt.plot(signal.savgol_filter(corrected_baseline, 3, 1), color='blue')
+    plt.plot(signal.savgol_filter(corrected_baseline, 5, 1), color='orange')
+    plt.plot(signal.savgol_filter(corrected_baseline, 7, 1), color='violet')
+    plt.show()
+    """
+    
+    if savgol_size>-1 and savgol_order>-1:
+        corrected_baseline = signal.savgol_filter(corrected_baseline, savgol_size, savgol_order)
+
+    #smooth = ndimage.white_tophat(savgol, None,
+    #                np.repeat([1], int(round(raw.size * tophat_factor))))    
+
     return NormalizedTrace( signal=corrected_baseline, baseline = baseline )
 
 
@@ -959,7 +981,8 @@ def separate_channels( trace, params):
             dye_name = trace.get_data(b('DyeN%d' % idx)).decode('UTF-8')
             dye_wavelength = trace.get_data(b('DyeW%d' % idx))
             raw_channel = np.array( trace.get_data(b('DATA%d' % data_idx)) )
-            nt = normalize_baseline( raw_channel, params )
+            is_ladder = (idx==5)
+            nt = normalize_baseline( raw_channel, params, is_ladder )
 
             results.append(
                 TraceChannel(dye_name, dye_wavelength, raw_channel, nt.signal)

@@ -43,7 +43,7 @@ class ScanningParameter(object):
         self.norm_thres = 0.05
         self.min_dist = 10
         self.min_rfu = 20 
-        self.min_rfu_ratio = 1 
+        self.min_rfu_ratio = 0 
         self.artifact_dist = 20
 
         self.min_theta = 0
@@ -52,6 +52,9 @@ class ScanningParameter(object):
 
         self.keep_artifacts = True
         self.baseline_correct = True # to correct baseline peak-by-peak
+
+        self.smoothing_window = -1
+        self.smoothing_order = -1
         
 class LadderScanningParameter(ScanningParameter):
 
@@ -89,6 +92,9 @@ class LadderScanningParameter(ScanningParameter):
         self.artifact_ratio = 0.5
 
         self.baseline_correct = True # to correct baseline peak by peak
+
+        self.smoothing_window = -1
+        self.smoothing_order = -1
 
 class Params(object):
 

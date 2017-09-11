@@ -47,10 +47,11 @@ class Panel(PanelMixIn):
 
 class Allele(AlleleMixIn):
 
-    def __init__(self, rtime, rfu, area, brtime, ertime, wrtime, srtime,
+    def __init__(self, rtime, rfu, rfu_uncorr, area, brtime, ertime, wrtime, srtime,
                     beta, theta, omega):
         self.rtime = rtime
         self.rfu = rfu
+        self.rfu_uncorr = rfu_uncorr
         self.area = area
         self.brtime = brtime
         self.ertime = ertime

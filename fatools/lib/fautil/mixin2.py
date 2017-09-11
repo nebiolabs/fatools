@@ -22,6 +22,10 @@ class AlleleMixIn(object):
     def height(self):
         return self.rfu
 
+    @property
+    def height_uncorr(self):
+        return self.rfu_uncorr
+        
     def __lt__(self, other):
         return self.rtime < other.rtime
 

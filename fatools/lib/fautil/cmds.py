@@ -110,7 +110,13 @@ def init_argparser(parser=None):
                    help='nonladder rfu threshold')
 
     p.add_argument('--nonladder_peak_window', default=-1, type=float,
-                   help='size of window (in scan time units) used to calcuate first derivatives')
+                   help='size of window (in scan time units) used to calculate first derivatives')
+
+    p.add_argument('--nonladder_smoothing_window', default=-1, type=int,
+                   help='size of window (in scan time units) used to smooth non-ladder data (no smoothing if -1)')
+
+    p.add_argument('--nonladder_smoothing_order', default=-1, type=int,
+                   help='order of polynomial used to smooth non-ladder data (no smoothing if -1)')
 
     p.add_argument('--allelemethod', default='', type=str,
                    help='allele method (leastsquare, cubicspline, localsouthern)')
@@ -156,7 +162,12 @@ def main(args):
             _params.allelemethod = allelemethod.localsouthern
         else:
             raise NotImplementedError()
-
+    
+    if args.nonladder_smoothing_window > 0:
+        _params.nonladder.smoothing_window = args.nonladder_smoothing_window        
+        _params.nonladder.smoothing_order = args.nonladder_smoothing_order
+          
+    cerr('I: Aligning size standards...')
     if args.file or args.infile or args.indir:
         cverr(4, 'D: opening FSA file(s)')
         fsa_list = open_fsa(args, _params)
@@ -345,11 +356,11 @@ def do_plot(args, fsa_list, dbh):
             plt.plot((0., 6000.), (0., 0.), '--')
             plt.xlim(left, right)
 
-            for p in channel.get_alleles():
+            for p in channel.get_alleles(False):
 
                 # label peak
-                y = p.height
-                if p.height < 250 or p.type == 'noise':
+                y = p.height_uncorr
+                if p.height < 0 or p.type == 'noise' or p.type=='overlap':
                     continue
 
                 x = p.rtime
