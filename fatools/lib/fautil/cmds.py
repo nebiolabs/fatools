@@ -195,7 +195,7 @@ def main(args):
         
 def do_facmds(args, fsa_list, _params, dbh=None):
 
-    bad_files_filename = args.indir + "/" + args.indir + "_badfiles.out"
+    bad_files_filename = args.indir + "/badfiles.out"
 
     f_bad_files = open(bad_files_filename,'w')
 
