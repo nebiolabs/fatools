@@ -58,6 +58,9 @@ def init_argparser(parser=None):
     p.add_argument('--listpeaks', default=False, action='store_true',
             help = 'list all peaks')
 
+    p.add_argument('--listrawdata', default=False, action='store_true',
+            help = 'list all data (base pair units and relative frequency units)')
+
     p.add_argument('--peaks_format', default="standard",
                    help = "format for peaks output file (standard, peakscanner)")
     
@@ -231,6 +234,9 @@ def do_facmds(args, fsa_list, _params, dbh=None):
     if args.listpeaks is not False:
         do_listpeaks( args, aligned_fsa_list, dbh )
         executed += 1
+    if args.listrawdata is not False:
+        do_listrawdata( args, aligned_fsa_list, dbh )
+        executed += 1
     if executed == 0:
         cerr('W: please provide a relevant command')
     else:
@@ -364,8 +370,10 @@ def do_plot(args, fsa_list, dbh):
                     continue
 
                 x = p.rtime
-                label = ("%2.1f b.p. - %s (h=%i (corr))" % (p.size, p.type, p.height))
-                plt.annotate(label, xy=(x, y), xytext=(-20, 10 * (ipeak % 3 + 1)),
+                if channel.dye=='6-FAM':
+                    label = ("%2.1f b.p. - %s (h=%i (corr))" % (p.size, p.type, p.height))
+                    
+                    plt.annotate(label, xy=(x, y), xytext=(-20, 10 * (ipeak % 3 + 1)),
                              textcoords='offset points', ha='right', va='bottom',
                              # bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
                              arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
@@ -468,7 +476,11 @@ def do_listpeaks( args, fsa_list, dbh ):
 
         markers = fsa.panel.data['markers']
 
-        out_stream = open(args.outfile, 'a')
+        if args.outfile != '-':
+            out_stream = open(args.outfile, 'a')
+        else:
+            out_stream = sys.stdout
+        
         for channel in fsa.channels:
             if channel.is_ladder():
                 color = markers['x/ladder']['filter']
@@ -494,6 +506,60 @@ def do_listpeaks( args, fsa_list, dbh ):
 
         out_stream.close()
 
+def do_listrawdata( args, fsa_list, dbh ):
+
+    outfile = '-'
+    if args.outfile != '-':
+        print("outfile: ", args.outfile)
+        outfile = args.outfile.rsplit('.',1)[0]
+        outfile += "_rawdata."
+        outfile += args.outfile.rsplit('.',1)[1]
+        
+        out_stream = open(outfile, 'w')
+    else:
+        out_stream = sys.stdout
+
+    out_stream.write('SAMPLE NAME,TRACE DYE,RAW DATA\n')
+    out_stream.close()
+
+    for (fsa, fsa_index) in fsa_list:
+        cverr(3, 'D: calling FSA %s' % fsa.filename)
+        
+        if outfile != '-':
+            out_stream = open(outfile, 'a')
+        else:
+            out_stream = sys.stdout
+
+        # sample name
+        sample_name = fsa.filename.rsplit('.',1)[0]
+
+        # iterate through channels
+        markers = fsa.panel.data['markers']
+        trace = fsa.get_trace()
+
+        for channel in fsa.channels:
+
+            # get trace dye
+            if channel.is_ladder():
+                trace_dye = markers['x/ladder']['filter']
+            else:
+                trace_dye = markers['x/'+channel.dye]['filter']
+
+            # get raw data
+            data = channel.data
+            datastring = "["
+            for scantime in range(len(data)):
+                basepair = fsa.allele_fit_func(scantime)[0]
+                if basepair>-999:
+                    datastring+="[%i,%.2f,%i]," % (scantime,basepair,data[scantime])
+                else:
+                    datastring+="[%i,,%i]," % (scantime,data[scantime])
+            datastring = datastring[:-1] + "]"
+
+            out_stream.write("\"%10s\",\"%s\",\"%s\"\n" % (sample_name, trace_dye, datastring))
+            
+        out_stream.close()
+        
 def open_fsa( args, _params ):
     """ open FSA file(s) and prepare fsa instances
         requires: args.file, args.panel, args.panelfile

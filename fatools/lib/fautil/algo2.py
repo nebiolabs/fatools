@@ -533,9 +533,12 @@ def calculate_area_firstderiv(y, dy, t):
     
     l_area, brtime, l_shared = half_area_firstderiv(data, firstderiv, False)
 
-
-    return ( l_area + r_area - y[t], t - brtime, ertime + t, math.log2(r_area / l_area),
-                l_shared, r_shared )
+    log2areas = 0
+    if r_area>0 and l_area>0:
+        log2areas = math.log2(r_area / l_area)
+        
+    return ( l_area + r_area - y[t], t - brtime, ertime + t, log2areas,
+             l_shared, r_shared )
 
 
 def half_area_firstderiv(y, firstderiv, decreasing):
@@ -561,6 +564,9 @@ def half_area_firstderiv(y, firstderiv, decreasing):
         pos = ( firstderiv[index] < 0. ) if decreasing else ( firstderiv[index] > 0. )
     index -= 1
 
+    if area<0:
+        area=0
+        
     return area, index, shared
 
 
@@ -795,49 +801,7 @@ def normalize_baseline( raw, params, is_ladder):
     else:
         savgol_size = params.nonladder.smoothing_window
         savgol_order = params.nonladder.smoothing_order
-
         
-    """
-    baseline_raw_med = signal.medfilt(raw, 499)
-    baseline_med = signal.savgol_filter( baseline_raw_med, 499, savgol_order)
-    
-    df_min = pd.Series(raw)
-    baseline_df_min = df_min.rolling(51,center=True).min()
-    baseline_raw_min = baseline_df_min.tolist()
-    
-    # correct for NaNs in beginning and end of list
-    halfwin_min = (int)(51/2)
-    baseline_raw_min[:halfwin_min] = [baseline_raw_min[halfwin_min+1]]*halfwin_min
-    baseline_raw_min[-halfwin_min:] = [baseline_raw_min[-halfwin_min-1]]*halfwin_min
-    baseline_min = signal.savgol_filter( baseline_raw_min, 51, savgol_order)
-
-    import matplotlib.pyplot as plt
-
-    savgol_raw = signal.savgol_filter(raw, savgol_size, savgol_order)
-    smooth_raw = ndimage.white_tophat(savgol_raw, None,
-                    np.repeat([1], int(round(raw.size * tophat_factor))))
-    #plt.plot(smooth_raw, label='raw (smoothed)')
-    
-    corr_min = raw-baseline_min
-    plt.plot(corr_min, label='minimum 51 (baseline subtr.)')
-    np.maximum(corr_min, 0, out=corr_min)
-    plt.plot(corr_min, label='minimum 51 (neg. corrected)')
-    savgol_min = signal.savgol_filter(corr_min, savgol_size, savgol_order)
-    plt.plot(savgol_min, label='minimum 51 (smoothed)')
-    smooth_min = ndimage.white_tophat(savgol_min, None,
-                    np.repeat([1], int(round(raw.size * tophat_factor))))
-    plt.plot(smooth_min, label='minimum 51 (top hat)')
-    
-    corr_med = raw-baseline_med
-    np.maximum(corr_med, 0, out=corr_med)
-    savgol_med = signal.savgol_filter(corr_med, savgol_size, savgol_order)
-    smooth_med = ndimage.white_tophat(savgol_med, None,
-                    np.repeat([1], int(round(raw.size * tophat_factor))))
-    #plt.plot(smooth_med, label='median 399 (smoothed)')
-    plt.legend()
-    plt.show()
-    """
-    
     if params.baselinemethod == const.baselinemethod.median:
         baseline_raw = signal.medfilt(raw, [medwinsize])
 
@@ -1169,13 +1133,19 @@ def local_southern( ladder_alleles ):
 
         # special case for points to left or right of ladder steps
         if (idx==0):
-            z = np.polyfit( x[0:4], y[0:4], 2)
-            min_score = .5 * min( z.qscore for z in ladder_allele_sorted[0:3] )
-            return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
+            if (x[0] - rtime) <= 100:                
+                z = np.polyfit( x[0:4], y[0:4], 2)
+                min_score = .5 * min( z.qscore for z in ladder_allele_sorted[0:3] )
+                return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
+            else:
+                return ( -999, 0, 0, const.allelemethod.localsouthern)
         if (idx==len(x)):
-            z = np.polyfit( x[-4:], y[-4:], 2)
-            min_score = .5 * min( z.qscore for z in ladder_allele_sorted[-3:] )
-            return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
+            if (rtime - x[-1]) <= 100:                
+                z = np.polyfit( x[-4:], y[-4:], 2)
+                min_score = .5 * min( z.qscore for z in ladder_allele_sorted[-3:] )
+                return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
+            else:
+                return ( -999, 0, 0, const.allelemethod.localsouthern)
             
         # left curve
         if (idx>1 and idx<len(x)):
@@ -1289,7 +1259,11 @@ def calc_overlap_ratio(data, data_r, rtime, brtime, ertime):
     lrc = lr / lc
     rrc = rr / rc
 
-    return (True, (lrc + rrc)/2, math.log2(rrc/lrc))
+    log2vals = 0
+    if lrc/rrc > 0:
+        log2vals = math.log2(rrc/lrc)
+        
+    return (True, (lrc + rrc)/2, log2vals)
 
 ## this is a new algorithm and steps to perform peak analysis
 ##
