@@ -36,9 +36,14 @@ class ChannelMixIn(object):
     """
 
     __slots__ = [   'data', 'dye', 'wavelen', 'alleles', 'fsa', 'status', 'marker',
-                    'mma', 'mmb', 'p80',
+                    'mma', 'mmb', 'p80', 'basepairs'
                 ]
 
+    
+    def __init__(self):
+        self.basepairs = []
+
+        
     def add_allele(self, allele):
         """ add this allele to channel """
         raise NotImplementedError()
@@ -158,14 +163,38 @@ class ChannelMixIn(object):
         #import pprint; pprint.pprint(alleles)
 
 
-    # ChannelMixIn call method
+    # ChannelMixIn merge method
+    def merge(self, parameters, ladder):
+
+        if self.is_ladder():
+            return
+
+        params = parameters.nonladder
+
+        print("calling algo.merge_peaks for ",self.dye)
+        
+        algo.merge_peaks(self, params, self.fsa.allele_fit_func)
+
+
+    # ChannelMixIn normalize method
     def normalize(self, parameters):
 
         params = parameters.ladder if self.is_ladder() else parameters.nonladder
 
         algo.normalize_peaks(self, params)
+
+
+    def get_basepairs(self):
+
+        if not self.fsa.allele_fit_func:
+            return []
         
-        
+        if not self.basepairs:
+            for st in range(len(self.data)):
+                basepair = self.fsa.allele_fit_func(st)[0]
+                self.basepairs.append(basepair)
+        return self.basepairs
+    
 class FSAMixIn(object):
     """
     attrs: channels
@@ -182,7 +211,8 @@ class FSAMixIn(object):
         self.area_scale_factor = -1 # single scale factor for all ladders
         self.scan_done = False
         self.call_done = False
-
+        self.allele_fit_func = None
+        
     def get_data_stream(self):
         """ return stream of data """
         raise NotImplementedError()
@@ -263,7 +293,16 @@ class FSAMixIn(object):
             c.call(parameters, ladder)
 
         self.call_done = True
+
+    # FSAMixIn merge method
+    def merge(self, parameters):
+
+        ladder = self.get_ladder_channel()
         
+        for c in self.channels:
+            print("calling merge for channel: ", c.dye)
+            c.merge(parameters, ladder)
+
     # FSAMixIn call method
     def normalize(self, parameters, ladder_means):
 

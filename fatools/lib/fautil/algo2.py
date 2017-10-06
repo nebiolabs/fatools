@@ -291,6 +291,233 @@ def normalize_peaks(channel, params):
         #allele.area_bp_corr = allele.area_bp * scale_factor
         allele.area_bp_corr = allele.area_bp * sf_poly1d(allele.size)
 
+
+def merge_peaks( channel, params, func ):
+    """
+    Group peaks and iteratively fit to Gaussians to determine information for merged peaks
+    """
+
+    from scipy.optimize import curve_fit
+    from scipy import asarray as ar,exp
+
+
+    def poly(x,*p0):
+        
+        return p0[0]+x*p0[1]
+    
+    def gauspoly(x, *p0):
+
+        #ngauss = int((len(p0)-2)/3+.01)
+        #val = 0.
+        #for i in range(ngauss):
+        #    a  = p0[3*i+2]
+        #    x0 = p0[3*i+1+2]
+        #    sigma = p0[3*i+2+2]
+        #    val += a*exp(-(x-x0)**2/(2*sigma**2))
+        
+        val = p0[-2] + x*p0[-1] + gaus(x,*p0[0:-2])
+        return val
+    
+    def gaus(x, *p0):
+
+        ngauss = int(len(p0)/3+.01)
+        val = 0.
+        for i in range(ngauss):
+            a  = p0[3*i]
+            x0 = p0[3*i+1]
+            sigma = p0[3*i+2]
+            val += a*exp(-(x-x0)**2/(2*sigma**2))
+        return val
+    
+    broad_alleles = channel.get_alleles(True)[:]
+    all_alleles = channel.get_alleles()[:]
+    basepairs = channel.get_basepairs()
+
+    while len(broad_alleles)>0:
+
+        # find tallest peak
+        peak = max(broad_alleles, key=lambda p: p.rfu)
+
+        if peak.rfu<100:
+            break
+        
+        rtime = peak.rtime
+        left = peak.rtime-1 
+        right = peak.rtime+1
+
+        # get right boundary for fits moving to left
+        while channel.firstderiv[right+1]<0 and right < len(basepairs)-1:
+            right += 1
+
+        # get initial left boundary for fit
+        while channel.firstderiv[left-1]>0 and left >= 0:
+            left -= 1
+
+        p0 = []
+        bounds = [[],[]]
+
+        # go to left until peak height below threshold    
+        while True:
+
+            # fit (basepairs, data) with a new gaussian centered at rtime
+            x = ar(basepairs[left:right+1])
+            y = ar(channel.data[left:right+1])
+            n = len(x)
+
+            height = channel.data[rtime]
+            mean = basepairs[rtime]
+            sigma = .25 # should be about 1 basepair
+
+            p0.extend([height, mean, sigma])
+            bounds[0].extend([0,mean-1,0])
+            bounds[1].extend([np.inf,mean+1,.3])
+
+            try:
+                popt, pcov = curve_fit(gaus, x, y, p0=p0, bounds=bounds)
+                p0 = popt.tolist()                
+                perr = np.sqrt(np.diag(pcov))
+
+            except RuntimeError:
+                perr = [ 100. ]
+            
+            # cleanup if added peak not big enough
+            #if perr[-1]>.01 or p0[-3]<0.05*channel.data[peak.rtime]:
+            """if p0[-3]<0.05*channel.data[peak.rtime]:
+                p0 = p0[:-3]
+                bounds[0] = bounds[0][:-3]
+                bounds[1] = bounds[1][:-3]
+
+                # refit with one less gaussian
+                if p0:
+                    popt, pcov = curve_fit(gaus, x, y, p0=p0)                
+                    p0 = popt.tolist()
+
+                break
+            """
+            
+            plt.plot(x,y,'b+:',label='data')
+            plt.plot(x,gaus(x,*p0),'ro:',label='fit')
+            plt.show()
+
+
+            # get new left boundary for fit
+            new_rtime = rtime
+            new_left = left
+            iloc = 1 # we start out to the right of the next peak
+            while (iloc>-1 or channel.firstderiv[new_left]<=0) and new_left >= 0:
+                if iloc==1 and channel.firstderiv[new_left]<0:
+                    iloc=0
+                elif iloc==0 and channel.firstderiv[new_left]>0:
+                    iloc=-1
+                    new_rtime = new_left
+                new_left -= 1
+
+            # check if the new peak is small enough to quit
+            if channel.data[new_rtime]>.05*channel.data[peak.rtime] and basepairs[new_left]>-999:
+                left = new_left
+                rtime = new_rtime
+            else:
+                break
+                
+        
+        plt.plot(x,y,'b+:',label='data')
+        plt.plot(x,gaus(x,*p0),'ro:',label='fit')
+        plt.show()
+
+        
+        #
+        # fit toward the right
+        #
+        
+        # get new rtime for first fit to the right
+        iloc = 1 # we start out to the left of the next peak
+        while (iloc>-1 or channel.firstderiv[right]<=0) and right < len(basepairs)-1:
+            if iloc==1 and channel.firstderiv[right]>0:
+                iloc=0
+            elif iloc==0 and channel.firstderiv[right]<0:
+                iloc=-1
+                rtime = right
+            right += 1
+                    
+        while True: 
+
+            # fit (basepairs, data) with a new gaussian centered at rtime
+            x = ar(basepairs[left:right+1])
+            y = ar(channel.data[left:right+1])
+            n = len(x)
+
+            height = channel.data[rtime]
+            mean = basepairs[rtime]
+            sigma = .25 # should be about 1 basepair
+
+            p0.extend([height, mean, sigma])
+            bounds[0].extend([0,mean-1,0])
+            bounds[1].extend([np.inf,mean+1,.3])
+
+            try:
+                popt, pcov = curve_fit(gaus, x, y, p0=p0, bounds=bounds)                
+                p0 = popt.tolist()
+                perr = np.sqrt(np.diag(pcov))
+
+            except RuntimeError:
+                print("runtime error")
+                perr = [ 100. ]
+            
+            # cleanup if added peak not big enough
+            #if perr[-1]>.01 or p0[-3]<0.01*channel.data[peak.rtime]:
+            """if p0[-3]<0.05*channel.data[peak.rtime]:
+                p0 = p0[:-3]
+                bounds[0] = bounds[0][:-3]
+                bounds[1] = bounds[1][:-3]
+
+                # refit with one less gaussian
+                if p0:
+                    popt, pcov = curve_fit(gaus, x, y, p0=p0)                
+                    p0 = popt.tolist()
+
+                break
+            """
+
+            plt.plot(x,y,'b+:',label='data')
+            plt.plot(x,gaus(x,*p0),'ro:',label='fit')
+            plt.show()
+
+            # get right boundary for fits moving to left
+            new_rtime = rtime
+            new_right = right
+            iloc = 1 # we start out to the left of the next peak
+            while (iloc>-1 or channel.firstderiv[new_right]<=0) and new_right < len(basepairs)-1:
+                if iloc==1 and channel.firstderiv[new_right]>0:
+                    iloc=0
+                elif iloc==0 and channel.firstderiv[new_right]<0:
+                    iloc=-1
+                    new_rtime = new_right
+                new_right += 1
+
+            # check if the new peak is small enough to quit
+            if channel.data[new_rtime]>.05*channel.data[peak.rtime] and basepairs[new_right]>-999:
+                right = new_right
+                rtime = new_rtime
+            else:
+                break
+
+        if p0:
+            p0.extend([0,0])
+            bounds[0].extend([0,-np.inf])
+            bounds[1].extend([np.inf, np.inf])
+
+            popt, pcov = curve_fit(gauspoly, x, y, p0=p0, bounds=bounds)                
+            p0 = popt.tolist()
+            
+            plt.plot(x,y,'b+:',label='data')
+            plt.plot(x,gauspoly(x,*p0),'ro:',label='fit')
+            plt.plot(x,poly(x,*p0[-2:]),'b--', label='bkg')
+            plt.show()
+
+        # remove peaks from broad_alleles between left and right
+        broad_alleles = [ allele for allele in broad_alleles if (allele.rtime<left or allele.rtime>right) ]
+
+
 # helper functions
 
 def find_raw_peaks(channel, params, offset, expected_peak_number=0):
@@ -1138,14 +1365,14 @@ def local_southern( ladder_alleles ):
                 min_score = .5 * min( z.qscore for z in ladder_allele_sorted[0:3] )
                 return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
             else:
-                return ( -999, 0, 0, const.allelemethod.localsouthern)
+                return ( -9999, 0, 0, const.allelemethod.localsouthern)
         if (idx==len(x)):
             if (rtime - x[-1]) <= 100:                
                 z = np.polyfit( x[-4:], y[-4:], 2)
                 min_score = .5 * min( z.qscore for z in ladder_allele_sorted[-3:] )
                 return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
             else:
-                return ( -999, 0, 0, const.allelemethod.localsouthern)
+                return ( -9999, 0, 0, const.allelemethod.localsouthern)
             
         # left curve
         if (idx>1 and idx<len(x)):

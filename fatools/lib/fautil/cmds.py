@@ -89,6 +89,9 @@ def init_argparser(parser=None):
     p.add_argument('--cluster', default=0, type=int,
             help = 'number of cluster for hierarchical clustering alignment')
 
+    p.add_argument('--merge', default=False, action='store_true',
+            help = 'merge smeared peaks into single peaks and write to output file')
+    
     p.add_argument('--verbose', default=0, type=int,
             help = 'show verbosity')
 
@@ -231,10 +234,13 @@ def do_facmds(args, fsa_list, _params, dbh=None):
     if args.ladderplot:
         do_ladderplot( args, aligned_fsa_list, dbh )
         executed += 1
-    if args.listpeaks is not False:
+    if args.merge:
+        do_merge( args, aligned_fsa_list, _params )
+        executed += 1
+    if args.listpeaks:
         do_listpeaks( args, aligned_fsa_list, dbh )
         executed += 1
-    if args.listrawdata is not False:
+    if args.listrawdata:
         do_listrawdata( args, aligned_fsa_list, dbh )
         executed += 1
     if executed == 0:
@@ -288,6 +294,18 @@ def do_call( args, fsa_list, params, dbh ):
     for (fsa, fsa_index) in fsa_list:
         cverr(3, 'D: calling FSA %s' % fsa.filename)
         fsa.call(params)
+
+
+def do_merge( args, fsa_list, params ):
+
+    cerr('I: merging smeared peaks...')
+
+    print("fsa_list: ", fsa_list)
+    
+    for (fsa, fsa_index) in fsa_list:
+        print("fsa_index: ", fsa_index)
+        cverr(3, 'D: calling merge for FSA %s' % fsa.filename)
+        fsa.merge(params)
 
 
 def do_normalize( args, fsa_list, params ):
@@ -548,12 +566,17 @@ def do_listrawdata( args, fsa_list, dbh ):
             # get raw data
             data = channel.data
             datastring = "["
-            for scantime in range(len(data)):
-                basepair = fsa.allele_fit_func(scantime)[0]
-                if basepair>-999:
-                    datastring+="[%i,%.2f,%i]," % (scantime,basepair,data[scantime])
+
+            data = channel.data
+            basepairs = channel.get_basepairs()
+            #channel.set_basepairs(fsa.allele_fit_func)
+            for i in range(len(data)):
+                rfu = data[i] 
+                bp  = basepairs[i] if basepairs else -999
+                if bp>-999:
+                    datastring+="[%i,%.2f,%i]," % (i,bp,rfu)
                 else:
-                    datastring+="[%i,,%i]," % (scantime,data[scantime])
+                    datastring+="[%i,null,%i]," % (i,rfu)
             datastring = datastring[:-1] + "]"
 
             out_stream.write("\"%10s\",\"%s\",\"%s\"\n" % (sample_name, trace_dye, datastring))
