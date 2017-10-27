@@ -300,8 +300,6 @@ def do_merge( args, fsa_list, params ):
 
     cerr('I: merging smeared peaks...')
 
-    print("fsa_list: ", fsa_list)
-    
     for (fsa, fsa_index) in fsa_list:
         print("fsa_index: ", fsa_index)
         cverr(3, 'D: calling merge for FSA %s' % fsa.filename)
@@ -520,7 +518,27 @@ def do_listpeaks( args, fsa_list, dbh ):
                 else:
                     out_stream.write('"%s, %i",%s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f, %f,,\n' %
                                      (color, i, fsa.filename, p.type, p.size, p.height, p.area, p.area_bp, p.area_bp_corr, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp,p.qscore))
-                i = i+1 
+                i = i+1
+
+            i=1
+            smeared_alleles = channel.smeared_alleles
+            if smeared_alleles:
+                
+                if is_verbosity(4):
+                    cout('Marker => %s | %s [%d]' % (channel.marker.code, channel.dye,
+                                                     len(smeared_alleles)))
+                    cout("channel has smeared alleles :",len(smeared_alleles))
+                i=1
+                for p in smeared_alleles:
+                
+                    if args.peaks_format=='standard':
+                        out_stream.write('%6s\t%10s-SM\t%3s\t%d\t%d\t%5i\t%3.2f\t%3.2f\n' %
+                                         (fsa_index, fsa.filename[:-4], color, p.rtime, p.size, p.height, p.area, p.qscore))
+                    else:
+                        out_stream.write('"%s-SM, %i",%s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f, %f,,\n' %
+                                         (color, i, fsa.filename, p.type, p.size, p.height, p.area, p.area_bp, p.area_bp_corr, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp,p.qscore))
+                    i = i+1
+                
 
         out_stream.close()
 

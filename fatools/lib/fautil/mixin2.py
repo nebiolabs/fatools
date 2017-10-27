@@ -36,13 +36,13 @@ class ChannelMixIn(object):
     """
 
     __slots__ = [   'data', 'dye', 'wavelen', 'alleles', 'fsa', 'status', 'marker',
-                    'mma', 'mmb', 'p80', 'basepairs'
+                    'mma', 'mmb', 'p80', 'basepairs', 'smeared_alleles'
                 ]
 
     
     def __init__(self):
         self.basepairs = []
-
+        self.smeared_alleles = []
         
     def add_allele(self, allele):
         """ add this allele to channel """
@@ -171,9 +171,9 @@ class ChannelMixIn(object):
 
         params = parameters.nonladder
 
-        print("calling algo.merge_peaks for ",self.dye)
+        #print("calling algo.merge_peaks for ",self.dye)
         
-        algo.merge_peaks(self, params, self.fsa.allele_fit_func)
+        self.smeared_alleles = algo.merge_peaks(self, params, self.fsa.allele_fit_func)
 
 
     # ChannelMixIn normalize method
@@ -190,9 +190,24 @@ class ChannelMixIn(object):
             return []
         
         if not self.basepairs:
+            #min=0
+            #max=0
             for st in range(len(self.data)):
                 basepair = self.fsa.allele_fit_func(st)[0]
+                # get max/min for plotting
+                #if basepair>-999 and min==0:
+                #    min=st
+                #if min>0 and max==0 and basepair<-999:
+                #    max=st-1
                 self.basepairs.append(basepair)
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np    
+        plt.plot(np.arange(0,len(self.data))[min:max+1], self.basepairs[min:max+1])
+        plt.xlabel('scan times')
+        plt.ylabel('base pairs')
+        plt.show()
+        """
         return self.basepairs
     
 class FSAMixIn(object):
@@ -300,7 +315,7 @@ class FSAMixIn(object):
         ladder = self.get_ladder_channel()
         
         for c in self.channels:
-            print("calling merge for channel: ", c.dye)
+            #print("calling merge for channel: ", c.dye)
             c.merge(parameters, ladder)
 
     # FSAMixIn call method

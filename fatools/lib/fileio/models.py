@@ -80,6 +80,9 @@ class Channel(ChannelMixIn):
     Allele = Allele
 
     def __init__(self, data, dye, wavelen, status, fsa):
+
+        ChannelMixIn.__init__(self)
+        
         self.data = data
         self.dye = dye
         self.wavelen = wavelen

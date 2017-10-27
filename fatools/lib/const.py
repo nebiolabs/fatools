@@ -12,7 +12,7 @@ class peaktype(object):
     artifact = 'artifact'
     bin = 'bin'
     ignored = 'ignored'
-
+    smeared = 'smeared'
 
 class channelstatus(object):
     unassigned = 'unassigned'   # dye is used in panel, but not in this channel
