@@ -411,11 +411,11 @@ def merge_peaks( channel, params, func ):
                     perr = [ 100. ]
 
                 #print("***** plotting, nplots:", nplots," *****")
-                fig = plt.figure()
-                plt.plot(x,y,'b+:',label='data')
-                plt.plot(xfine,gauspoly(xfine,xbar,*p0),'ro:',label='fit', markersize=2)
-                plt.plot(xfine, poly(xfine,xbar,*p0[-3:]),'r--', label='bkg', markersize=2)
-                plt.show()
+                #fig = plt.figure()
+                #plt.plot(x,y,'b+:',label='data')
+                #plt.plot(xfine,gauspoly(xfine,xbar,*p0),'ro:',label='fit', markersize=2)
+                #plt.plot(xfine, poly(xfine,xbar,*p0[-3:]),'r--', label='bkg', markersize=2)
+                #plt.show()
                 #figname = "fit_"+channel.fsa.filename[:-4]+"_"+str(left)+"_"+str(right)+".png"
                 #fig.savefig(figname)
                 
