@@ -201,6 +201,19 @@ def main(args):
         
 def do_facmds(args, fsa_list, _params, dbh=None):
 
+    if args.ladder_rfu_threshold >= 0:
+        _params.ladder.min_rfu = args.ladder_rfu_threshold
+
+    if args.ladder_rfu_ratio_threshold >= 0:
+        _params.ladder.min_rfu_ratio = args.ladder_rfu_ratio_threshold
+
+    if args.nonladder_rfu_threshold >= 0:
+        _params.nonladder.min_rfu = args.nonladder_rfu_threshold
+
+    if args.nonladder_peak_window >0 :
+        _params.nonladder.peakwindow = args.nonladder_peak_window
+
+
     bad_files_filename = args.indir + "/badfiles.out"
 
     f_bad_files = open(bad_files_filename,'w')
@@ -261,12 +274,6 @@ def do_align( args, fsa_list, _params, f_bad_files, dbh ):
     FSA in the list, and returns a list of good FSAs.
     """
     
-    if args.ladder_rfu_threshold >= 0:
-        _params.ladder.min_rfu = args.ladder_rfu_threshold
-
-    if args.ladder_rfu_ratio_threshold >= 0:
-        _params.ladder.min_rfu_ratio = args.ladder_rfu_ratio_threshold
-
     cerr('I: Aligning size standards...')
 
     good_fsa = []
@@ -284,12 +291,6 @@ def do_align( args, fsa_list, _params, f_bad_files, dbh ):
 def do_call( args, fsa_list, params, dbh ):
 
     cerr('I: Calling non-ladder peaks...')
-
-    if args.nonladder_rfu_threshold >= 0:
-        params.nonladder.min_rfu = args.nonladder_rfu_threshold
-
-    if args.nonladder_peak_window >0 :
-        params.nonladder.peakwindow = args.nonladder_peak_window
 
     for (fsa, fsa_index) in fsa_list:
         cverr(3, 'D: calling FSA %s' % fsa.filename)
