@@ -13,8 +13,8 @@ from scipy import signal, ndimage
 from scipy.optimize import curve_fit
 from scipy.stats import norm
 from scipy import asarray as ar,exp
-#import scipy.integrate as integrate
-#from scipy.integrate import quad
+import scipy.integrate as integrate
+from scipy.integrate import quad
 from scipy.interpolate import UnivariateSpline
 
 import pandas as pd
@@ -323,6 +323,8 @@ def merge_peaks( channel, params, func ):
     all_alleles = channel.get_alleles()[:]
     basepairs = channel.get_basepairs()
 
+    nmergedpeaks = 0
+    
     while len(broad_alleles)>0:
 
         # find tallest peak
@@ -334,27 +336,33 @@ def merge_peaks( channel, params, func ):
         # rtime is the location of the current peak
         rtime = peak.rtime
 
-        # get left and right bounds
+        # array containing peak centers and heights (starting with tallest peak)
         peak_centers = [basepairs[peak.rtime]]
         peak_heights = [channel.data[peak.rtime]]
 
+        # get left and right bounds
         left  = find_smeared_peak_bound(peak, channel, peak_centers, peak_heights,
                                         move_to_right=False)
         right = find_smeared_peak_bound(peak, channel, peak_centers, peak_heights,
                                         move_to_right=True)
 
-        # fit parameters
+        # remove peaks from broad_alleles between left and right
+        broad_alleles = [ allele for allele in broad_alleles
+                          if (allele.rtime<left or allele.rtime>right) ]
+
+        #
+        # do an initial fit to make sure we have a real peak with a sensible width
+        #
         height = channel.data[peak.rtime]
-        mean = basepairs[rtime]
+        mean = basepairs[peak.rtime]
         p0 = [ height, mean, 0.25]
         fitbounds = [[0, mean-1., 0.], [height+2.*np.sqrt(height), mean+1., .6]]
-        
-        # do an initial fit to make sure we have a real peak with a sensible width
-        first_peak_right = rtime
+
+        first_peak_right = peak.rtime
         while basepairs[first_peak_right+1]>-999 and \
               abs(basepairs[first_peak_right]-basepairs[peak.rtime])<0.5:
             first_peak_right += 1
-        first_peak_left = rtime
+        first_peak_left = peak.rtime
         while basepairs[first_peak_left-1]>-999 and \
               abs(basepairs[first_peak_left]-basepairs[peak.rtime])<0.5:
             first_peak_left -= 1
@@ -362,7 +370,6 @@ def merge_peaks( channel, params, func ):
         x = ar(basepairs[first_peak_left:first_peak_right+1])
         y = ar(channel.data[first_peak_left:first_peak_right+1])
 
-        # fit function
         try:
             popt, pcov = curve_fit(gaus, x, y, p0=p0, bounds=fitbounds)
             perr = np.sqrt(np.diag(pcov))
@@ -371,95 +378,184 @@ def merge_peaks( channel, params, func ):
             print("runtime error")
             perr = [ 100. ]
 
-        #use uncertainty in width of 1st peak to see how good fit is
-        if np.sqrt(pcov[2,2])<0.05:
-            p0=[]
-            fitbounds=[[],[]]
-            for peak_center, peak_height in zip(peak_centers, peak_heights):
+        # use uncertainty in width of 1st peak to see how good fit is
+        if np.sqrt(pcov[2,2])>0.05:
+            continue
+
+        #
+        # We have a good peak, so fit to series of gaussians
+        #
+        p0=[]
+        fitbounds=[[],[]]
+        for peak_center, peak_height in zip(peak_centers, peak_heights):
+
+            height = peak_height
+            mean = peak_center
+            sigma = 0.25
+            p0.extend([height, mean, sigma])
+            fitbounds[0].extend([0,mean-.5,.2])
+            fitbounds[1].extend([height+2.*np.sqrt(height), mean+.5, .6])
+
+        # x and y arrays for defining background and total functions 
+        x = ar(basepairs[left:right+1])
+        npoints = int(200 * (basepairs[right]-basepairs[left])/5)
+        xfine = np.linspace(basepairs[left],basepairs[right],npoints)
+        y = ar(channel.data[left:right+1])
+        
+        # background and total functions
+        xbar = basepairs[peak.rtime]
+        f_poly = lambda x, *p: poly(x,xbar,*p[-3:])
+        f = lambda x, *p: gaus(x,*p[0:-3]) + f_poly(x,*p[-3:])
+
+        # background parameters
+        p0.extend([0,0,0])
+        fitbounds[0].extend([0, -np.inf, -np.inf])
+        fitbounds[1].extend([np.inf, np.inf, np.inf])
+        
+        try:
+            popt, pcov = curve_fit(f, x, y, p0=p0, bounds=fitbounds)
+            p0 = popt.tolist()
             
-                height = peak_height
-                mean = peak_center
-                sigma = 0.25
-                p0.extend([height, mean, sigma])
-                fitbounds[0].extend([0,mean-1.5,0])
-                fitbounds[1].extend([height+2.*np.sqrt(height), mean+1.5, .6])
+        except RuntimeError:
+            print("runtime error")
+            perr = [ 100. ]
+
+        # remove any degenerate or too narrow peaks (always keep first peak)
+        new_p0 = p0[0:3]
+        new_bounds = [fitbounds[0][0:3],fitbounds[1][0:3]]
+        ngaus = int(int(len(p0)-3)/3)
+
+        for i in range(ngaus-1, 0, -1): # for each gauss in p0, add to new_p0 if good
+
+            # see if gauss is too narrow
+            good_gauss = p0[3*i+2]>.1
+            if not good_gauss:
+                continue
             
-            # only fit background if more than one peak found in cluster
-            if p0 and len(p0)>3:
+            # see if any other peaks are too close
+            peakrtime_i = p0[3*i+1]
+            for j in range(i-1, -1, -1):
+                peakrtime_j = p0[3*j+1]
+                if np.abs(peakrtime_j - peakrtime_i)<.55:
+                    good_gauss = False
+                    break
+            if not good_gauss:
+                continue
 
-                x = ar(basepairs[left:right+1])
-                npoints = int(200 * (basepairs[right]-basepairs[left])/5)
-                xfine = np.linspace(basepairs[left],basepairs[right],npoints)
-                y = ar(channel.data[left:right+1])
+            new_p0.extend(p0[3*i:3*i+3])
+            new_bounds[0].extend(fitbounds[0][3*i:3*i+3])
+            new_bounds[1].extend(fitbounds[1][3*i:3*i+3])
+
+        new_p0.extend(p0[-3:])
+        new_bounds[0].extend(fitbounds[0][-3:])
+        new_bounds[1].extend(fitbounds[1][-3:])
+
+        p0 = new_p0
+        fitbounds = new_bounds
+        
+        # fit again if number parameters changed
+        ngaus_new = int(int(len(p0)-3)/3)
+            
+        if  ngaus_new<ngaus:                    
+            try:
+                popt, pcov = curve_fit(f, x, y, p0=p0, bounds=fitbounds)
+                p0 = popt.tolist()
                 
-                # add fit to polynomial background
-                xbar = basepairs[peak.rtime]
-                #f_poly = lambda x, *p: p[0] + p[1]*(x-xbar) + p[2]*(x-xbar)*(x-xbar)
-                f_poly = lambda x, *p: poly(x,xbar,*p[-3:])
-                f = lambda x, *p: gaus(x,*p[0:-3]) + f_poly(x,*p[-3:])
-                
-                p0.extend([0,0,0])
-                fitbounds[0].extend([0, -np.inf, -np.inf])
-                fitbounds[1].extend([np.inf, np.inf, np.inf])
-                
-                try:
-                    popt, pcov = curve_fit(f, x, y, p0=p0, bounds=fitbounds)
-                    p0 = popt.tolist()
-                
-                except RuntimeError:
-                    print("runtime error")
-                    perr = [ 100. ]
+            except RuntimeError:
+                print("runtime error")
+                perr = [ 100. ]
 
-                #print("***** plotting, nplots:", nplots," *****")
-                #fig = plt.figure()
-                #plt.plot(x,y,'b+:',label='data')
-                #plt.plot(xfine,gauspoly(xfine,xbar,*p0),'ro:',label='fit', markersize=2)
-                #plt.plot(xfine, poly(xfine,xbar,*p0[-3:]),'r--', label='bkg', markersize=2)
-                #plt.show()
-                #figname = "fit_"+channel.fsa.filename[:-4]+"_"+str(left)+"_"+str(right)+".png"
-                #fig.savefig(figname)
-                
-                # calculate area and store peak
-                left_bp = basepairs[left]
-                right_bp = basepairs[right]
+        fig = plt.figure()
+        plt.plot(x,y,'b+:',label='data')
+        plt.plot(xfine,gauspoly(xfine,xbar,*p0),'ro:',label='fit', markersize=2)                
+        plt.plot(xfine, poly(xfine,xbar,*p0[-3:]),'r--', label='bkg', markersize=2)
+        for i in range(ngaus_new):
+            plt.axvline(p0[3*i+1])
 
-                # calculate area and subtract background 
-                #tot_area = integrate.quad(gauspoly, left_bp, right_bp, args=tuple(p0))
-                #bkg_area = integrate.quad(poly, left_bp, right_bp, args=tuple(p0[-3:]))
-                #tot_area = integrate.quad(f, left_bp, right_bp, args=tuple(p0))
-                #bkg_area = integrate.quad(f_poly, left_bp, right_bp, args=tuple(p0[-3:]))        
-                #area = tot_area[0] - bkg_area[0]
+        # append individual peaks based on gaussians
+        means = [ p0[3*i+1] for i in range(ngaus_new) ]
+        sorted_means = sorted(means)
+        
+        for i in range(ngaus_new):
 
-                area = 0
-                for i in range(left, right+1):
-                    area += channel.data[i] - poly(basepairs[i], xbar, *p0[-3:])
-                delta = (basepairs[right]-basepairs[left])/float(right-left)
-                area *= delta
+            height = p0[3*i]
+            mean = p0[3*i+1]
+            sigma = p0[3*i+2]
 
-                # use Allele to store info for the smeared allele
-                allele = channel.Allele(
-                    rtime = peak.rtime,
-                    rfu = peak.rfu,
-                    rfu_uncorr = peak.rfu_uncorr,
-                    area = area,
-                    brtime = left,
-                    ertime = right,
-                    wrtime = left_bp,
-                    srtime = right_bp,
-                    beta = 0, theta = 0, omega = 0
-                )
-                allele.size = basepairs[peak.rtime]
-                allele.type = const.peaktype.smeared
-                allele.method = const.binningmethod.notavailable
-                allele.marker = channel.marker
+            # get rtime and peak boundaries in scan time units
+            sorted_i = sorted_means.index(mean)
+            rtime = left
+            while basepairs[rtime]<mean:
+                rtime+=1
+            rtime-=1
 
-                smeared_peaks.append(allele)
+            if sorted_i==0:
+                brtime = left
+            else:
+                left_bp = (mean + sorted_means[sorted_i-1])/2
+                brtime = rtime
+                while basepairs[brtime]>left_bp:
+                    brtime-=1
 
-        # remove peaks from broad_alleles between left and right
-        broad_alleles = [ allele for allele in broad_alleles if (allele.rtime<left or allele.rtime>right) ]
+            if sorted_i==ngaus_new-1:
+                ertime=right
+            else:
+                right_bp = (mean + sorted_means[sorted_i+1])/2
+                ertime = rtime
+                while basepairs[ertime]<right_bp:
+                    ertime+=1
+                ertime-=1
+
+            begin_bp = basepairs[brtime]
+            end_bp = basepairs[ertime]
+            area = integrate.quad(gaus, begin_bp, end_bp, args=tuple(p0))[0]
+
+            l_area = integrate.quad(gaus, begin_bp, mean, args=tuple(p0))[0]
+            r_area = integrate.quad(gaus, mean, end_bp, args=tuple(p0))[0]
+            
+            srtime = 0
+            if r_area>0 and l_area>0:
+                srtime = math.log2(r_area / l_area)
+
+            # use Allele to store info for the smeared allele
+            allele = channel.Allele(
+                rtime = rtime,
+                rfu = height,
+                rfu_uncorr = height,
+                area = area, #np.sqrt(2.*np.pi) * height * sigma,
+                brtime = brtime,
+                ertime = ertime,
+                wrtime = ertime - brtime,
+                srtime = srtime,
+                beta = 0, theta = 0, omega = 0
+            )
+            allele.size = mean
+            allele.type = const.peaktype.smeared
+            allele.method = const.binningmethod.notavailable
+            allele.marker = channel.marker
+            allele.group = nmergedpeaks
+
+            # set values in base pair units
+            allele.begin_bp = begin_bp
+            allele.end_bp = end_bp
+            allele.width_bp = end_bp - begin_bp
+
+            delta = (basepairs[right]-basepairs[left])/float(right-left)            
+            allele.area_bp = float(allele.area) * delta
+            
+            smeared_peaks.append(allele)
+
+            # add dotted lines for peak boundaries to plot
+            plt.axvline(basepairs[brtime], linestyle='--')
+            plt.axvline(basepairs[ertime], linestyle='--')
+
+        #plt.show()
+        figname = "fit_"+channel.fsa.filename[:-4]+"_"+str(left)+"_"+str(right)+".png"
+        fig.savefig(figname)
+    
+        nmergedpeaks += 1
 
     return smeared_peaks
-
 
 def find_smeared_peak_bound( peak, channel, peak_centers, peak_heights, move_to_right ):
 

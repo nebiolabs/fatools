@@ -72,6 +72,7 @@ class Allele(AlleleMixIn):
         self.area_bp_corr = -1
 
         self.qscore = 99
+        self.group = -1
 
 class Channel(ChannelMixIn):
 
