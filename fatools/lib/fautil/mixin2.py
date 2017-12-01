@@ -164,7 +164,7 @@ class ChannelMixIn(object):
 
 
     # ChannelMixIn merge method
-    def merge(self, parameters, ladder):
+    def merge(self, parameters, ladder, plot=False):
 
         if self.is_ladder():
             return
@@ -173,7 +173,7 @@ class ChannelMixIn(object):
 
         #print("calling algo.merge_peaks for ",self.dye)
         
-        self.smeared_alleles = algo.merge_peaks(self, params, self.fsa.allele_fit_func)
+        self.smeared_alleles = algo.merge_peaks(self, params, self.fsa.allele_fit_func, plot)
 
 
     # ChannelMixIn normalize method
@@ -310,13 +310,13 @@ class FSAMixIn(object):
         self.call_done = True
 
     # FSAMixIn merge method
-    def merge(self, parameters):
+    def merge(self, parameters, plot=False):
 
         ladder = self.get_ladder_channel()
         
         for c in self.channels:
             #print("calling merge for channel: ", c.dye)
-            c.merge(parameters, ladder)
+            c.merge(parameters, ladder, plot)
 
     # FSAMixIn call method
     def normalize(self, parameters, ladder_means):

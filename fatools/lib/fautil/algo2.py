@@ -296,7 +296,7 @@ def normalize_peaks(channel, params):
         #allele.area_bp_corr = allele.area_bp * scale_factor
         allele.area_bp_corr = allele.area_bp * sf_poly1d(allele.size)
 
-def merge_peaks( channel, params, func ):
+def merge_peaks( channel, params, func, plot=False ):
     """
     Group peaks and fit to a series of Gaussians on top of a polynomial
     """
@@ -375,7 +375,7 @@ def merge_peaks( channel, params, func ):
             perr = np.sqrt(np.diag(pcov))
 
         except RuntimeError:
-            print("runtime error")
+            #print("initial fit failed, will skip this peak")
             perr = [ 100. ]
 
         # use uncertainty in width of 1st peak to see how good fit is
@@ -465,12 +465,13 @@ def merge_peaks( channel, params, func ):
                 print("runtime error")
                 perr = [ 100. ]
 
-        fig = plt.figure()
-        plt.plot(x,y,'b+:',label='data')
-        plt.plot(xfine,gauspoly(xfine,xbar,*p0),'ro:',label='fit', markersize=2)                
-        plt.plot(xfine, poly(xfine,xbar,*p0[-3:]),'r--', label='bkg', markersize=2)
-        for i in range(ngaus_new):
-            plt.axvline(p0[3*i+1])
+        if plot:
+            fig = plt.figure()
+            plt.plot(x,y,'b+:',label='data')
+            plt.plot(xfine,gauspoly(xfine,xbar,*p0),'ro:',label='fit', markersize=2)
+            plt.plot(xfine, poly(xfine,xbar,*p0[-3:]),'r--', label='bkg', markersize=2)
+            for i in range(ngaus_new):
+                plt.axvline(p0[3*i+1])
 
         # append individual peaks based on gaussians
         means = [ p0[3*i+1] for i in range(ngaus_new) ]
@@ -545,13 +546,15 @@ def merge_peaks( channel, params, func ):
             
             smeared_peaks.append(allele)
 
-            # add dotted lines for peak boundaries to plot
-            plt.axvline(basepairs[brtime], linestyle='--')
-            plt.axvline(basepairs[ertime], linestyle='--')
+            if plot:
+                # add dotted lines for peak boundaries to plot
+                plt.axvline(basepairs[brtime], linestyle='--')
+                plt.axvline(basepairs[ertime], linestyle='--')
 
-        #plt.show()
-        figname = "fit_"+channel.fsa.filename[:-4]+"_"+str(left)+"_"+str(right)+".png"
-        fig.savefig(figname)
+        if plot:
+            #plt.show()
+            figname = "fit_"+channel.fsa.filename[:-4]+"_"+str(left)+"_"+str(right)+".png"
+            fig.savefig(figname)
     
         nmergedpeaks += 1
 

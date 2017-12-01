@@ -104,6 +104,9 @@ def init_argparser(parser=None):
     p.add_argument('--commit', default=False, action='store_true',
             help = 'commit to database')
 
+    p.add_argument('--plot_merged_peaks', default=False, action='store_true',
+                   help = 'make plots of merged peaks and save to output directory')
+    
     ## Override params
 
     p.add_argument('--ladder_rfu_threshold', default=-1, type=float,
@@ -304,7 +307,7 @@ def do_merge( args, fsa_list, params ):
     for (fsa, fsa_index) in fsa_list:
         print("fsa_index: ", fsa_index)
         cverr(3, 'D: calling merge for FSA %s' % fsa.filename)
-        fsa.merge(params)
+        fsa.merge(params, args.plot_merged_peaks)
 
 
 def do_normalize( args, fsa_list, params ):
@@ -406,7 +409,7 @@ def do_plot(args, fsa_list, dbh):
                 plt.close()
 
         if args.plotlist[0] == 'all' or len(args.plotlist) > 0:
-            plt.show()
+            #plt.show()
             plt.savefig(fsa.filename + ".png")
             plt.close()
 
@@ -482,8 +485,11 @@ def do_listpeaks( args, fsa_list, dbh ):
         out_stream.write('SAMPLE\tFILENAME   \tDYE\tRTIME\tSIZE\tHEIGHT\tAREA\tSCORE\n')
     elif args.peaks_format == 'peakscanner':
         out_stream.write("Dye/Sample Peak,Sample File Name,Type,Size,Height,Area in Point,Area in BP,Corrected Area in BP,Data Point,Begin Point,")
-        out_stream.write("Begin BP,End Point,End BP,Width in Point,Width in BP,Score,Peak Group,User Comments,User Edit\n")
-
+        if args.merge:
+            out_stream.write("Begin BP,End Point,End BP,Width in Point,Width in BP,Score,Peak Group,User Comments,User Edit\n")
+        else:
+            out_stream.write("Begin BP,End Point,End BP,Width in Point,Width in BP,Score,User Comments,User Edit\n")
+            
     else:
         raise RuntimeError("Unknown value for args.peaks_format")
     out_stream.close()
@@ -520,7 +526,7 @@ def do_listpeaks( args, fsa_list, dbh ):
                         out_stream.write('%6s\t%10s\t%3s\t%d\t%d\t%5i\t%3.2f\t%3.2f\n' %
                                          (fsa_index, fsa.filename[:-4], color, p.rtime, p.size, p.height, p.area, p.qscore))
                     else:
-                        out_stream.write('"%s, %i",%s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f, %f,,,\n' %
+                        out_stream.write('"%s, %i",%s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f, %f,,\n' %
                                          (color, i, fsa.filename, p.type, p.size, p.height, p.area, p.area_bp, p.area_bp_corr, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp,p.qscore))
                     i = i+1
 
@@ -532,7 +538,6 @@ def do_listpeaks( args, fsa_list, dbh ):
                     cout("channel has smeared alleles :",len(smeared_alleles))
                 i=1
                 for p in smeared_alleles:
-                
                     out_stream.write('"%s, %i", %s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f, %f, %i,,\n' %
                                      (color, i, fsa.filename, p.type, p.size, p.height, p.area, p.area_bp, p.area_bp_corr, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp,p.qscore, p.group))
                     i = i+1
