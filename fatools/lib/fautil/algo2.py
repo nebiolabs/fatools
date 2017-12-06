@@ -1,4 +1,4 @@
-import numpy as np
+umport numpy as np
 import math
 
 from fatools.lib.utils import cverr, is_verbosity
@@ -417,7 +417,7 @@ def merge_peaks( channel, params, func, plot=False ):
             p0 = popt.tolist()
             
         except RuntimeError:
-            print("runtime error")
+            #print("runtime error")
             perr = [ 100. ]
 
         # remove any degenerate or too narrow peaks (always keep first peak)
@@ -462,7 +462,7 @@ def merge_peaks( channel, params, func, plot=False ):
                 p0 = popt.tolist()
                 
             except RuntimeError:
-                print("runtime error")
+                #print("runtime error")
                 perr = [ 100. ]
 
         if plot:
@@ -472,6 +472,8 @@ def merge_peaks( channel, params, func, plot=False ):
             plt.plot(xfine, poly(xfine,xbar,*p0[-3:]),'r--', label='bkg', markersize=2)
             for i in range(ngaus_new):
                 plt.axvline(p0[3*i+1])
+            plt.xlabel("peak size (base pair units]")
+            plt.ylabel("intensity (relative freq. units)")
 
         # append individual peaks based on gaussians
         means = [ p0[3*i+1] for i in range(ngaus_new) ]
