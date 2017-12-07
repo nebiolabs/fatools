@@ -1,4 +1,4 @@
-umport numpy as np
+import numpy as np
 import math
 
 from fatools.lib.utils import cverr, is_verbosity
