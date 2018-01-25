@@ -558,7 +558,7 @@ def do_listrawdata( args, fsa_list, dbh ):
     else:
         out_stream = sys.stdout
 
-    out_stream.write('SAMPLE NAME,TRACE DYE,RAW DATA\n')
+    out_stream.write('SAMPLE NAME,WELL ID,TRACE DYE,RAW DATA\n')
     out_stream.close()
 
     for (fsa, fsa_index) in fsa_list:
@@ -575,6 +575,9 @@ def do_listrawdata( args, fsa_list, dbh ):
         # iterate through channels
         markers = fsa.panel.data['markers']
         trace = fsa.get_trace()
+
+        # get well ID
+        well_id = fsa.get_well_id()
 
         for channel in fsa.channels:
 
@@ -600,7 +603,7 @@ def do_listrawdata( args, fsa_list, dbh ):
                     datastring+="[%i,null,%i]," % (i,rfu)
             datastring = datastring[:-1] + "]"
 
-            out_stream.write("\"%10s\",\"%s\",\"%s\"\n" % (sample_name, trace_dye, datastring))
+            out_stream.write("\"%10s\",\"%s\",\"%s\",\"%s\"\n" % (sample_name, well_id, trace_dye, datastring))
             
         out_stream.close()
         

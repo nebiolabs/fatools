@@ -151,6 +151,16 @@ class ABIF(object):
 
         return results
 
+    def get_well_id(self):
+
+        try:
+            well_id = self.get_data(b('TUBE')).decode('ASCII')
+
+        except KeyError:
+            pass
+
+        return well_id
+
     def get_run_start_time(self):
 
         rdate = self.get_data( b'RUND1' )

@@ -1256,6 +1256,17 @@ def b(txt):
     """ return a binary string aka bytes """
     return txt.encode('UTF-8')
 
+def get_well_id( trace ):
+
+    well_id = '00'
+
+    try:
+        well_id = trace.get_data(b('TUBE1')).decode('ASCII')
+
+    except KeyError:
+        pass
+
+    return well_id
 
 def separate_channels( trace, params):
     # return a list of [ 'dye name', dye_wavelength, numpy_array, numpy_smooth_baseline ]

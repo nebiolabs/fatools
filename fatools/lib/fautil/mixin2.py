@@ -237,6 +237,8 @@ class FSAMixIn(object):
         """ add this channel to fsa """
         raise NotImplementedError()
 
+    def get_well_id(self):
+        return algo.get_well_id(self.get_trace())
 
     def get_trace(self):
         if not hasattr(self, '_trace'):
