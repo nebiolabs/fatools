@@ -257,7 +257,7 @@ def do_facmds(args, fsa_list, _params, dbh=None):
         do_listpeaks( args, aligned_fsa_list, dbh )
         executed += 1
     if args.listrawdata:
-        do_listrawdata( args, aligned_fsa_list, dbh )
+        do_listrawdata( args, fsa_list, dbh )
         executed += 1
     if executed == 0:
         cerr('W: please provide a relevant command')
