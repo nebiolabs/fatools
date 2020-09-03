@@ -47,9 +47,6 @@ def init_argparser(parser=None):
     p.add_argument('--annotate', default=False, action='store_true',
             help = 'annotate non-ladder peaks')
 
-    p.add_argument('--plot', default=False, action='store_true',
-            help = 'plot normalized trace')
-
     p.add_argument('--split-plot', action='store_true',
             help='plot dye separately')
 
