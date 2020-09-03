@@ -7,6 +7,7 @@ from fatools.lib.fautil.algo2 import LadderMismatchException
 import sys, argparse, csv, os
 from io import StringIO
 
+
 def init_argparser(parser=None):
 
     p = parser if parser else argparse.ArgumentParser('facmd')
@@ -46,11 +47,17 @@ def init_argparser(parser=None):
     p.add_argument('--annotate', default=False, action='store_true',
             help = 'annotate non-ladder peaks')
 
-    p.add_argument('--ladderplot', default=False, action='store_true',
-            help = 'plot ladder peaks and calibration curve')
+    p.add_argument('--plot', default=False, action='store_true',
+            help = 'plot normalized trace')
+
+    p.add_argument('--split-plot', action='store_true',
+            help='plot dye separately')
 
     p.add_argument('--dendogram', default=False, action='store_true',
             help = 'plot dendograms of ladders and alleles')
+
+    p.add_argument('--ladder-plot', action='store_true',
+            help='report and plot ladder alignment for assessment purposes')
 
     p.add_argument('--normalize', default=False, action='store_true',
             help = 'calculate normalized areas for all peaks')
@@ -63,7 +70,7 @@ def init_argparser(parser=None):
 
     p.add_argument('--peaks_format', default="standard",
                    help = "format for peaks output file (standard, peakscanner)")
-    
+
     p.add_argument('--plot', default="", type=str,
             help = 'plot trace (delimited list input)')
 
@@ -86,27 +93,36 @@ def init_argparser(parser=None):
 
     # options
 
+    p.add_argument('--score', default=1.0, type=float,
+            help = 'minimum alignment score threshold to be plotted')
+
+    p.add_argument('--rss', default=-1, type=float,
+            help = 'maximum rss threshold to be plotted')
+
     p.add_argument('--cluster', default=0, type=int,
             help = 'number of cluster for hierarchical clustering alignment')
 
     p.add_argument('--merge', default=False, action='store_true',
             help = 'merge smeared peaks into single peaks and write to output file')
-    
+
     p.add_argument('--verbose', default=0, type=int,
             help = 'show verbosity')
 
-    p.add_argument('--use-cache', default=False, action='store_true',
-            help = 'prepare to use caches')
+    p.add_argument('--cache-path',
+            help='store cache in other location (defaults to home)')
 
     p.add_argument('--no-cache', default=False, action='store_true',
             help = 'do not use caches')
+
+    p.add_argument('--plot-file',
+            help='save --plot or --split-plot result into a file')
 
     p.add_argument('--commit', default=False, action='store_true',
             help = 'commit to database')
 
     p.add_argument('--plot_merged_peaks', default=False, action='store_true',
                    help = 'make plots of merged peaks and save to output directory')
-    
+
     ## Override params
 
     p.add_argument('--ladder_rfu_threshold', default=-1, type=float,
@@ -150,7 +166,7 @@ def main(args):
     from fatools.lib.const import allelemethod, baselinemethod
     _params = params.Params()
 
-    _params.baselinewindow = args.baselinewindow 
+    _params.baselinewindow = args.baselinewindow
 
     if args.baselinemethod !="":
         if args.baselinemethod=='none':
@@ -171,11 +187,11 @@ def main(args):
             _params.allelemethod = allelemethod.localsouthern
         else:
             raise NotImplementedError()
-    
+
     if args.nonladder_smoothing_window > 0:
-        _params.nonladder.smoothing_window = args.nonladder_smoothing_window        
+        _params.nonladder.smoothing_window = args.nonladder_smoothing_window
         _params.nonladder.smoothing_order = args.nonladder_smoothing_order
-          
+
     cerr('I: Aligning size standards...')
     if args.file or args.infile or args.indir:
         cverr(4, 'D: opening FSA file(s)')
@@ -201,7 +217,7 @@ def main(args):
     else:
         do_facmds(args, fsa_list, _params)
 
-        
+
 def do_facmds(args, fsa_list, _params, dbh=None):
 
     if args.ladder_rfu_threshold >= 0:
@@ -224,7 +240,7 @@ def do_facmds(args, fsa_list, _params, dbh=None):
     args.plotrange = []
 
     aligned_fsa_list = fsa_list
-    
+
     executed = 0
     if args.clear:
         do_clear( args, fsa_list, dbh )
@@ -235,7 +251,7 @@ def do_facmds(args, fsa_list, _params, dbh=None):
     if args.call:
         do_call( args, aligned_fsa_list, _params, dbh )
         executed += 1
-    if args.plot is not "":
+    if args.plot or args.split_plot or args.ladder_plot:
         args.plotlist = [item for item in args.plot.split(',')]
         if args.range is not "":
             args.plotrange = [int(item) for item in args.range.split(',')]
@@ -246,9 +262,6 @@ def do_facmds(args, fsa_list, _params, dbh=None):
         executed += 1
     if args.dendogram:
         do_dendogram( args, fsa_list, dbh)
-        executed += 1
-    if args.ladderplot:
-        do_ladderplot( args, aligned_fsa_list, dbh )
         executed += 1
     if args.merge:
         do_merge( args, aligned_fsa_list, _params )
@@ -273,10 +286,10 @@ def do_clear( args, fsa_list, dbh ):
 
 def do_align( args, fsa_list, _params, f_bad_files, dbh ):
     """
-    This takes an input list of FSA instances , calls FSA.align for 
+    This takes an input list of FSA instances , calls FSA.align for
     FSA in the list, and returns a list of good FSAs.
     """
-    
+
     cerr('I: Aligning size standards...')
 
     good_fsa = []
@@ -287,7 +300,7 @@ def do_align( args, fsa_list, _params, f_bad_files, dbh ):
             good_fsa.append( (fsa, fsa_index) )
         except LadderMismatchException:
             f_bad_files.write(("LadderMismatch: %s\n") % fsa.filename)
-            
+
     return good_fsa
 
 
@@ -317,7 +330,7 @@ def do_normalize( args, fsa_list, params ):
     # use panel method to set scale factors for all FSA
     from fatools.lib.fileio.models import Panel
     panel = Panel.get_panel(args.panel)
-    
+
     ladder_means = panel.get_ladder_area_means(fsa_list)
 
     # normalize areas for each FSA
@@ -330,117 +343,10 @@ def do_plot(args, fsa_list, dbh):
 
     cerr('I: Creating plot...')
 
-    from matplotlib import pylab as plt
-    plt.rcParams['figure.figsize'] = 12, 9
+    from fatools.lib.fautil import plot
 
-    for (fsa, fsa_index) in fsa_list:
+    plot.plot(args, fsa_list, dbh)
 
-        markers = fsa.panel.data['markers']
-
-        left = 1000
-        right = 6000
-
-        # get conversion from s.t.u. to b.p.
-        if args.plotrange:
-            
-            left = args.plotrange[0]
-            right = args.plotrange[1]
-            
-            if left<1000: # assume base pair units, convert to scan time units
-                
-                import numpy as  np
-                fit = np.poly1d(fsa.z)
-
-                left = 1000
-                while (fit(left) < args.plotrange[0]):
-                    left += 20
-                left -= 20
-
-                right = 6000
-                while (fit(right) > args.plotrange[1]):
-                    right -= 20
-                right += 20
-
-        if args.plotlist[0] == 'all' or len(args.plotlist) > 0:
-            plt.figure()
-
-        ipeak = 0
-        for channel in fsa.channels:
-            if channel.is_ladder():
-                color = markers['x/ladder']['filter']
-            else:
-                color = markers['x/' + channel.dye]['filter']
-
-            if args.plotlist[0] != 'all' and len(args.plotlist) == 0:
-                plt.figure()
-            # see if color is in list of colors to plot
-            if color not in args.plotlist and args.plotlist[0] != 'all':
-                continue
-
-            plt.plot(channel.data, label="data '" + color + "'")
-            #plt.plot(channel.firstderiv,label="1st deriv")
-            plt.plot((0., 6000.), (0., 0.), '--')
-            plt.xlim(left, right)
-
-            for p in channel.get_alleles(False):
-
-                # label peak
-                y = p.height_uncorr
-                if p.height < 0 or p.type == 'noise' or p.type=='overlap':
-                    continue
-
-                x = p.rtime
-                if channel.dye=='6-FAM':
-                    label = ("%2.1f b.p. - %s (h=%i (corr))" % (p.size, p.type, p.height))
-                    
-                    plt.annotate(label, xy=(x, y), xytext=(-20, 10 * (ipeak % 3 + 1)),
-                             textcoords='offset points', ha='right', va='bottom',
-                             # bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
-                             arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
-                ipeak += 1
-
-            plt.xlabel('allele size (scan time units)')
-            plt.ylabel('peak height (rel. fluorescence units)')
-            plt.title(fsa.filename, y=1.08)
-            plt.legend()
-            # plt.show()
-            if args.plotlist[0] != 'all' and len(args.plotlist) == 0:
-                plt.savefig(fsa.filename + "_" + color + ".png")
-                plt.close()
-
-        if args.plotlist[0] == 'all' or len(args.plotlist) > 0:
-            #plt.show()
-            plt.savefig(fsa.filename + ".png")
-            plt.close()
-
-
-def do_ladderplot( args, fsa_list, dbh ):
-
-    cerr('I: Creating ladder plot...')
-
-    import matplotlib.pyplot as plt
-    for (fsa, fsa_index) in fsa_list:
-
-        c = fsa.get_ladder_channel()
-
-        # get ladder and times for peaks fit to ladder
-        ladder_sizes = fsa.panel.get_ladder()['sizes']
-        alleles = c.get_alleles()
-        allele_sizes = [allele.rtime for allele in alleles]
-
-        plt.plot(allele_sizes, ladder_sizes, 'p', label='peaks matched to ladder steps')
-
-        # plot fit of ladder scan times to base pairs
-        import numpy as  np
-        fit = np.poly1d(c.fsa.z)
-        #x = np.arange(allele_sizes[0] - 150, allele_sizes[-1] + 100)  # len(c.data))
-        x = np.arange(800, allele_sizes[-1] + 100)  # len(c.data))
-        plt.plot(x, fit(x), label='fitted curve')
-        plt.legend()
-        plt.xlabel("peak scan times")
-        plt.ylabel("# base pairs")
-
-        plt.show()
 
 def do_dendogram( args, fsa_list, dbh ):
 
@@ -453,7 +359,7 @@ def do_dendogram( args, fsa_list, dbh ):
         c.scan(params.Params()) # scan first if necessary
 
         ladder = fsa.panel.get_ladder()
-        peaks = c.get_alleles()
+        peaks = c.get_alleles(False)
 
         #initial_pair, P, L = hclustalign.hclust_align(peaks, ladder)
         P = hcalign.generate_tree( [ (n.rtime, 0) for n in peaks ] )
@@ -489,7 +395,7 @@ def do_listpeaks( args, fsa_list, dbh ):
             out_stream.write("Begin BP,End Point,End BP,Width in Point,Width in BP,Score,Peak Group,User Comments,User Edit\n")
         else:
             out_stream.write("Begin BP,End Point,End BP,Width in Point,Width in BP,Score,User Comments,User Edit\n")
-            
+
     else:
         raise RuntimeError("Unknown value for args.peaks_format")
     out_stream.close()
@@ -503,7 +409,7 @@ def do_listpeaks( args, fsa_list, dbh ):
             out_stream = open(args.outfile, 'a')
         else:
             out_stream = sys.stdout
-        
+
         for channel in fsa.channels:
             if channel.is_ladder():
                 color = markers['x/ladder']['filter']
@@ -511,14 +417,14 @@ def do_listpeaks( args, fsa_list, dbh ):
                 color = markers['x/'+channel.dye]['filter']
 
             alleles = channel.get_alleles(broad_peaks_only=False)
-            
+
             if is_verbosity(4):
                 cout('Marker => %s | %s [%d]' % (channel.marker.code, channel.dye,
                                                  len(alleles)))
                 cout("channel has alleles :",len(alleles))
 
             i=1
-            
+
             smeared_alleles = channel.smeared_alleles
             if (not args.merge) or channel.is_ladder():
                 for p in alleles:
@@ -541,7 +447,7 @@ def do_listpeaks( args, fsa_list, dbh ):
                     out_stream.write('"%s, %i", %s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f, %f, %i,,\n' %
                                      (color, i, fsa.filename, p.type, p.size, p.height, p.area, p.area_bp, p.area_bp_corr, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp,p.qscore, p.group))
                     i = i+1
-                
+
 
         out_stream.close()
 
@@ -553,7 +459,7 @@ def do_listrawdata( args, fsa_list, dbh ):
         outfile = args.outfile.rsplit('.',1)[0]
         outfile += "_rawdata."
         outfile += args.outfile.rsplit('.',1)[1]
-        
+
         out_stream = open(outfile, 'w')
     else:
         out_stream = sys.stdout
@@ -563,7 +469,7 @@ def do_listrawdata( args, fsa_list, dbh ):
 
     for (fsa, fsa_index) in fsa_list:
         cverr(3, 'D: calling FSA %s' % fsa.filename)
-        
+
         if outfile != '-':
             out_stream = open(outfile, 'a')
         else:
@@ -595,7 +501,7 @@ def do_listrawdata( args, fsa_list, dbh ):
             basepairs = channel.get_basepairs()
             #channel.set_basepairs(fsa.allele_fit_func)
             for i in range(len(data)):
-                rfu = data[i] 
+                rfu = data[i]
                 bp  = basepairs[i] if basepairs else -999
                 if bp>-999:
                     datastring+="[%i,%.2f,%i]," % (i,bp,rfu)
@@ -604,9 +510,9 @@ def do_listrawdata( args, fsa_list, dbh ):
             datastring = datastring[:-1] + "]"
 
             out_stream.write("\"%10s\",\"%s\",\"%s\",\"%s\"\n" % (sample_name, well_id, trace_dye, datastring))
-            
+
         out_stream.close()
-        
+
 def open_fsa( args, _params ):
     """ open FSA file(s) and prepare fsa instances
         requires: args.file, args.panel, args.panelfile
@@ -636,9 +542,13 @@ def open_fsa( args, _params ):
     index = 1
 
     # prepare caching
-    if args.use_cache:
-        if not os.path.exists('.fatools_caches/channels'):
-            os.makedirs('.fatools_caches/channels')
+    cache_path = None
+    if not args.no_cache:
+        cache_path = os.path.join(os.path.expanduser('~'), '.fatools_caches', 'channels')
+        if args.cache_path is not None:
+            cache_path = os.path.join(args.cache_path, '.fatools_caches', 'channels')
+        if not os.path.exists(cache_path):
+            os.makedirs(cache_path)
 
     if args.file:
         for fsa_filename in args.file.split(','):
@@ -649,7 +559,9 @@ def open_fsa( args, _params ):
             else:
                 filename = fsa_filename
 
-            fsa = FSA.from_file(filename, panel, _params, cache = not args.no_cache)
+            fsa = FSA.from_file(filename, panel, _params,
+                                cache=not args.no_cache,
+                                cache_path=cache_path)
             # yield (fsa, str(i))
             fsa_list.append( (fsa, str(index)) )
             index += 1
@@ -678,8 +590,9 @@ def open_fsa( args, _params ):
             panel_code = r.get('PANEL', None) or args.panel
             panel = Panel.get_panel(panel_code)
 
-            fsa = FSA.from_file( fsa_filename, panel, _params, options,
-                                 cache = not args.no_cache )
+            fsa = FSA.from_file(fsa_filename, panel, options,
+                                cache=not args.no_cache,
+                                cache_path=cache_path)
             if 'SAMPLE' in inrows.fieldnames:
 
                 # yield (fsa, r['SAMPLE'])

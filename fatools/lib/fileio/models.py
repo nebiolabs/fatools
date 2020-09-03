@@ -6,11 +6,14 @@
 
 from fatools.lib.utils import cout, cerr
 from fatools.lib.fautil.mixin2 import MarkerMixIn, PanelMixIn, ChannelMixIn, FSAMixIn, AlleleMixIn
+from fatools.lib import const
 
 import os, pickle
 
 
 class Marker(MarkerMixIn):
+
+    __slots__ = []
 
     container = {}
 
@@ -29,6 +32,8 @@ class Marker(MarkerMixIn):
 
 class Panel(PanelMixIn):
 
+    __slots__ = []
+
     container = {}
 
     Marker = Marker
@@ -46,6 +51,8 @@ class Panel(PanelMixIn):
 
 
 class Allele(AlleleMixIn):
+
+    __slots__ = []
 
     def __init__(self, rtime, rfu, rfu_uncorr, area, brtime, ertime, wrtime, srtime,
                     beta, theta, omega):
@@ -83,7 +90,7 @@ class Channel(ChannelMixIn):
     def __init__(self, data, dye, wavelen, status, fsa):
 
         ChannelMixIn.__init__(self)
-        
+
         self.data = data
         self.dye = dye
         self.wavelen = wavelen
@@ -93,7 +100,7 @@ class Channel(ChannelMixIn):
         self.alleles = []
 
         self.firstderiv = []
-        
+
         self.assign()
 
 
@@ -123,34 +130,41 @@ class FSA(FSAMixIn):
 
     def close_file(self):
         self._fhdl.close()
-        
+
     @classmethod
-    def from_file(cls, fsa_filename, panel, params, excluded_markers=None, cache=True):
+    def from_file(cls, fsa_filename, panel, params, excluded_markers=None,
+                  cache=True, cache_path=None):
         fsa = cls()
         fsa.filename = os.path.basename(fsa_filename)
-        fsa._fhdl = open(fsa_filename, 'rb')
         fsa.set_panel(panel, excluded_markers)
 
         # with fileio, we need to prepare channels everytime or seek from cache
-        cache_file = '.fatools_caches/channels/%s' % fsa.filename
+        if cache_path is None:
+            cache = False
+        else:
+            cache_file = os.path.join(cache_path, fsa.filename)
         if cache and os.path.exists(cache_file):
             if os.stat(fsa_filename).st_mtime < os.stat(cache_file).st_mtime:
                 cerr('I: uploading channel cache for %s' % fsa_filename)
-
                 try:
-                    fsa.channels = pickle.load( open(cache_file, 'rb') )
+                    with open(cache_file, 'rb') as cache_handle_read:
+                        fsa.channels = pickle.load(cache_handle_read)
                     for c in fsa.channels:
                         c.fsa = fsa
+                    # assume channels are already normalized
+                    fsa.status = const.assaystatus.normalized
                     return fsa
-                except:
+                except AttributeError:
                     cerr('E: uploading failed, will recreate cache')
 
-        fsa.create_channels(params)
-        if cache and os.path.exists('.fatools_caches/channels'):
+        with open(fsa_filename, 'rb') as fsa_handle:
+            fsa._fhdl = fsa_handle
+            fsa.create_channels(params)
+            fsa._fhdl = None
+        if cache and os.path.exists(cache_path):
             for c in fsa.channels: c.fsa = None
-            pickle.dump(fsa.channels, open(cache_file, 'wb'))
+            with open(cache_file, 'wb') as cache_handle_write:
+                pickle.dump(fsa.channels, cache_handle_write)
             for c in fsa.channels: c.fsa = fsa
+
         return fsa
-
-
-

@@ -13,12 +13,23 @@ from fatools.lib.fautil.alignutils import (estimate_z, pair_f, align_dp,
 from fatools.lib.fautil.gmalign import ZFunc, align_gm
 from fatools.lib import const
 
+ANCHOR_RTIME_LOWER_BOUND = 1400
+ANCHOR_RTIME_UPPER_BOUND = 5000
+PEAK_RTIME_UPPER_BOUND = 11000
 
 
 def align_pm(peaks, ladder, anchor_pairs=None):
 
     if not anchor_pairs:
-        anchor_peaks = [ p for p in peaks if 1500 < p.rtime < 5000 ]
+        longest_rtime_peak = max([p.rtime for p in peaks])
+        if longest_rtime_peak > PEAK_RTIME_UPPER_BOUND:
+            bound_adjust_ratio = longest_rtime_peak / PEAK_RTIME_UPPER_BOUND
+            anchor_start = ANCHOR_RTIME_LOWER_BOUND * bound_adjust_ratio
+            anchor_end = ANCHOR_RTIME_UPPER_BOUND * bound_adjust_ratio
+        else:
+            anchor_start = ANCHOR_RTIME_LOWER_BOUND
+            anchor_end = ANCHOR_RTIME_UPPER_BOUND
+        anchor_peaks = [ p for p in peaks if anchor_start < p.rtime < anchor_end ]
 
         # this finds the pair of peaks that best match to the 2nd and next-to-last ladder steps, and
         # does a linear fit to the rest of peaks to find the peaks matched to ladder steps
@@ -37,7 +48,7 @@ def align_pm(peaks, ladder, anchor_pairs=None):
 
         anchor_rtimes, anchor_bpsizes = zip( *anchor_pairs )
         zres = estimate_z(anchor_rtimes, anchor_bpsizes, 2)
-        score, z = minimize_score(f, zres.z, 2)        
+        score, z = minimize_score(f, zres.z, 2)
         pairs, rss = f.get_pairs(z)
 
     else:
@@ -51,8 +62,9 @@ def align_pm(peaks, ladder, anchor_pairs=None):
     # last dp
     dp_result = align_dp(f.rtimes, f.sizes, f.similarity, z, rss)
 
-    if is_verbosity(4):
+    if is_verbosity(1):
         import pprint; pprint.pprint(dp_result.sized_peaks)
+    if is_verbosity(4):
         plot(f.rtimes, f.sizes, dp_result.z, [(x[1], x[0]) for x in dp_result.sized_peaks])
 
     dp_result.sized_peaks = f.get_sized_peaks(dp_result.sized_peaks)
@@ -80,13 +92,13 @@ def align_pm(peaks, ladder, anchor_pairs=None):
         while abs(rss - last_rss) > 1e-3:
 
             niter += 1
-            print('Iter: %d' % niter)
+            cverr(5, 'Iter: %d' % niter)
 
-            print(z)
+            cverr(5, z)
             score = f(z)
             if last_score and last_score < score:
                 # score does not converge; just exit
-                print('does not converge!')
+                cverr(5, 'does not converge!')
                 break
 
             pairs, cur_rss = f.get_pairs(z)
@@ -97,7 +109,7 @@ def align_pm(peaks, ladder, anchor_pairs=None):
             z = zres.z
             last_rss = rss
             rss = zres.rss
-            print(rss)
+            cverr(5, rss)
 
     dp_result = align_dp(f.rtimes, f.sizes, last_z, last_rss)
 
@@ -155,21 +167,21 @@ def align_lower_pm(peaks, ladder, anchor_pairs, anchor_z):
                 #print('rss:', zres.rss)
                 #plot(f.rtimes, f.sizes, zres.z, [ (first_peak.rtime, first_bpsize), ] )
                 score, z = minimize_score(f, zres.z, 3)
-                
+
                 scores.append( (score, z) )
                 #plot(f.rtimes, f.sizes, z, [ (first_peak.rtime, first_bpsize), ] )
-                
+
         scores.sort( key = lambda x: x[0] )
         #import pprint; pprint.pprint( scores[:10] )
 
     if scores:
-        z = scores[0][1]        
+        z = scores[0][1]
         pairs, rss = f.get_pairs(z)
     else:
         z = anchor_z
         pairs = anchor_pairs
         rss = None
-        
+
     #plot(f.rtimes, f.sizes, z, pairs )
 
     return pairs, z, rss, f
@@ -190,8 +202,6 @@ def align_lower_pm(peaks, ladder, anchor_pairs, anchor_z):
         anchor_rtimes = list(anchor_rtimes)
         anchor_bpsizes = list(anchor_bpsizes)
         remaining_sizes = [x for x in ladder['sizes'] if x < anchor_bpsizes[0]]
-        print('anchor_bpsizes', anchor_bpsizes)
-        print('remaining_sizes', remaining_sizes)
         if not remaining_sizes:
             return pairs, z, rss, f
 
@@ -215,8 +225,10 @@ def align_lower_pm(peaks, ladder, anchor_pairs, anchor_z):
     anchor_bpsizes = list(anchor_bpsizes)
     remaining_sizes = [x for x in ladder['sizes'] if x < anchor_bpsizes[0]]
     current_sizes = anchor_bpsizes
-    z = estimate_z(anchor_rtimes, anchor_bpsizes, 3).z
-    f = ZFunc(peaks, current_sizes, anchor_pairs, estimate=True)
+    zscore = estimate_z(anchor_rtimes, anchor_bpsizes, 3)
+    z = zscore.z
+    rss = zscore.rss
+    f = ZFunc(peaks, current_sizes, anchor_pairs)
 
     while True:
 
@@ -225,12 +237,21 @@ def align_lower_pm(peaks, ladder, anchor_pairs, anchor_z):
 
         current_sizes.insert(0, remaining_sizes.pop(-1))
         f.set_sizes(current_sizes)
-        score, z = minimize_score(f, z, 3)
-        pairs, rss = f.get_pairs(z)
+        score, next_z = minimize_score(f, z, 3)
+        next_pairs, next_rss = f.get_pairs(next_z)
+
+        # if delta rss (current rss - prev rss) is above certain threshold,
+        # then assume the latest peak standar is not appropriate, and
+        # use previous z and rss
+        if (next_rss - rss) > 20:
+            current_sizes.pop(0)
+        else:
+            z = next_z
+            rss = next_rss
+            pairs = next_pairs
+
         if is_verbosity(5):
             plot(f.rtimes, f.sizes, z, pairs )
-
-
 
 
 def align_upper_pm(peaks, ladder, anchor_pairs, anchor_z):
@@ -252,14 +273,14 @@ def align_upper_pm(peaks, ladder, anchor_pairs, anchor_z):
     f = ZFunc(peaks, sizes, anchor_pairs, estimate=True)
 
     if remaining_sizes:
-        
+
         #sizes = ladder['sizes']
 
         # check the first
         est_last_bpsize = np.poly1d(anchor_z)(peaks[-1].rtime)
 
         last_bpsize = max( remaining_sizes[1] if remaining_sizes else 0, [ s for s in sizes if s < est_last_bpsize ][-3] )
-        
+
         for last_peak in reversed(peaks[-14:]):
             if last_peak.rtime <= anchor_pairs[-1][0]:
                 break
@@ -269,7 +290,7 @@ def align_upper_pm(peaks, ladder, anchor_pairs, anchor_z):
             score, z = minimize_score(f, zres.z, 2)
             #print(score)
             #plot(f.rtimes, f.sizes, z, [] )
-            
+
             scores.append( (score, z) )
 
         scores.sort( key = lambda x: x[0] )
@@ -277,7 +298,7 @@ def align_upper_pm(peaks, ladder, anchor_pairs, anchor_z):
 
     if scores:
         z = scores[0][1]
-        pairs, rss = f.get_pairs(z)        
+        pairs, rss = f.get_pairs(z)
     else:
         z = anchor_z
         pairs = anchor_pairs
@@ -300,23 +321,39 @@ def align_upper_pm(peaks, ladder, anchor_pairs, anchor_z):
     remaining_sizes = [x for x in ladder['sizes'] if x > anchor_bpsizes[-1]]
     current_sizes = anchor_bpsizes
     order = ladder['order']
-    z = estimate_z(anchor_rtimes, anchor_bpsizes, order).z
-    f = ZFunc(peaks, current_sizes, anchor_pairs, estimate=True)
+    zres = estimate_z(anchor_rtimes, anchor_bpsizes, order)
+    z,rss = zres.z, zres.rss
+    f = ZFunc(peaks, current_sizes, anchor_pairs)
 
-    while True:
-
-        if not remaining_sizes:
-            return pairs, z, rss, f
+    while remaining_sizes:
 
         current_sizes.append( remaining_sizes.pop(0) )
+        if ( remaining_sizes and
+             (remaining_sizes[-1] - current_sizes[-1]) < 100 and
+             (remaining_sizes[0] - current_sizes[-1]) < 11 ):
+            current_sizes.append( remaining_sizes.pop(0) )
+
         f.set_sizes(current_sizes)
         score, next_z = minimize_score(f, z, order)
-        pairs, rss = f.get_pairs(z)
-        if rss < 100:
+        next_pairs, next_rss = f.get_pairs(z)
+
+        if (next_rss - rss) < 70:
             z = next_z
+            rss = next_rss
+            pairs = next_pairs
+
         if is_verbosity(5):
             plot(f.rtimes, f.sizes, z, pairs )
 
+    # finalize the alignment with stringent criteria
+    dp_result = align_dp(f.rtimes, f.sizes, f.similarity, z, rss)
+    if dp_result.rss - rss > 50:
+        return pairs, z, rss, f
+    dp_pairs = [(x[1], x[0]) for x in dp_result.sized_peaks]
+    if is_verbosity(5):
+        plot(f.rtimes, f.sizes, dp_result.z, dp_pairs)
+
+    return dp_pairs, dp_result.z, dp_result.rss, f
 
 
 def minimize_score( f, z, order ):
@@ -348,7 +385,7 @@ def estimate_pm(peaks, bpsizes):
     """
     returns sorted list of bp sizes matched to peaks and fits
     """
-    
+
     rtimes = [ p.rtime for p in peaks ]
 
     rtime_points = prepare_rtimes( rtimes )
@@ -360,7 +397,7 @@ def estimate_pm(peaks, bpsizes):
     # find linear fit for pair of peaks best matched to 2nd and next-to-last ladder step
     scores = []
     for rtime_pair in rtime_points:
-        
+
         if rtime_pair[0] >= rtime_pair[1]:
             continue
 
@@ -383,18 +420,19 @@ def estimate_pm(peaks, bpsizes):
         score = f(zres.z)
 
         scores.append( (score, zres) )
-        #plot(f.rtimes, f.sizes, zres.z, [] )
+        if is_verbosity(5):
+            plot(f.rtimes, f.sizes, zres.z, [] )
 
     scores.sort( key = lambda x: x[0] )
-    
     #import pprint; pprint.pprint(scores[:5])
     zresult = scores[0][1]
 
     # check this linear fit
     dp_result = align_dp(f.rtimes, f.sizes, f.similarity, zresult.z, zresult.rss)
-    
+
     #import pprint; pprint.pprint(dp_result.sized_peaks)
-    #plot(f.rtimes, f.sizes, dp_result.z, [(x[1], x[0]) for x in dp_result.sized_peaks])
+    if is_verbosity(5):
+        plot(f.rtimes, f.sizes, dp_result.z, [(x[1], x[0]) for x in dp_result.sized_peaks])
 
     return ( [(x[1], x[0]) for x in dp_result.sized_peaks], dp_result.z )
 
@@ -404,4 +442,3 @@ def prepare_rtimes(rtimes):
 
     mid_size = round(len(rtimes)/2)
     return list( itertools.product(rtimes[:mid_size], rtimes[mid_size-2:]) )
-

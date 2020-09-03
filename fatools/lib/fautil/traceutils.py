@@ -2,10 +2,12 @@
 from math import factorial
 import numpy as np
 import attr
-from scipy import ndimage, signal
+from scipy import ndimage, signal, optimize
+
 
 _TOPHAT_FACTOR = 0.01 #025   #05
 _MEDWINSIZE = 299
+_MEDMMSIZE = 1991
 
 def b(txt):
     """ return a binary string aka bytes """
@@ -29,7 +31,15 @@ def correct_baseline( signal ):
 class NormalizedTrace(object):
     signal = attr.ib()
     baseline = attr.ib()
+    mma = attr.ib()
+    mmb = attr.ib()
 
+
+def func_mm(x, a, b):
+    """ Michaelis Menten kinetics equation -
+        this has a nice property of passing initial value and plateau
+    """
+    return a*x/(b+x)
 
 def normalize_baseline( raw ):
     """ return mean, median, sd and smooth signal """
@@ -40,7 +50,16 @@ def normalize_baseline( raw ):
     np.maximum(corrected_baseline, 0, out=corrected_baseline)
     smooth = correct_baseline( signal.savgol_filter(corrected_baseline, 11, 7) )
 
-    return NormalizedTrace( signal=smooth, baseline = baseline )
+    # perform michaelis-menten equation for baseline assessment
+    mm_line = signal.medfilt(raw, [ _MEDMMSIZE ])
+    xx = np.linspace(0, len(raw) )
+    try:
+        popt, pcov = optimize.curve_fit(func_mm, xx, mm_line)
+    except:
+        # michaelis menten are not appropriate for this scale
+        popt = pcov = [0, 0]
+
+    return NormalizedTrace( signal=smooth, baseline = baseline, mma = popt[0], mmb = popt[1] )
 
 
 def search_peaks( signal, cwt_widths, min_snr ):
@@ -140,11 +159,24 @@ class TraceChannel(object):
 def separate_channels( trace ):
     # return a list of [ 'dye name', dye_wavelength, numpy_array, numpy_smooth_baseline ]
 
+    from fatools.lib.fautil.traceio import WAVELENGTH
+
     results = []
     for (idx, data_idx) in [ (1,1), (2,2), (3,3), (4,4), (5,105) ]:
         try:
             dye_name = trace.get_data(b('DyeN%d' % idx)).decode('UTF-8')
-            dye_wavelength = trace.get_data(b('DyeW%d' % idx))
+            #dye_wavelength = trace.get_data(b('DyeW%d' % idx))
+
+            # below is to workaround on some strange dye names
+            if dye_name == '6FAM': dye_name = '6-FAM'
+            elif dye_name == 'PAT': dye_name = 'PET'
+            elif dye_name == 'Bn Joda': dye_name = 'LIZ'
+
+            try:
+                dye_wavelength = trace.get_data(b('DyeW%d' % idx))
+            except KeyError:
+                dye_wavelength = WAVELENGTH[dye_name]
+
             raw_channel = np.array( trace.get_data(b('DATA%d' % data_idx)) )
             nt = normalize_baseline( raw_channel )
 

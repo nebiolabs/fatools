@@ -66,7 +66,7 @@ def main():
         
         # get ladder and times for peaks fit to ladder
         ladder_sizes = fsa.panel.get_ladder()['sizes']
-        alleles = c.get_alleles()
+        alleles = c.get_alleles(False)
         allele_sizes = [allele.rtime for allele in alleles]
         
         plt.plot(allele_sizes, ladder_sizes, 'p',

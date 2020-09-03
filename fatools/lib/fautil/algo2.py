@@ -1,13 +1,12 @@
 import numpy as np
 import math
 
-from fatools.lib.utils import cverr, is_verbosity
+from fatools.lib.utils import cerr, cverr, is_verbosity
 from fatools.lib import const
 from fatools.lib.fautil.hcalign import align_hc
 from fatools.lib.fautil.gmalign import align_gm, align_sh, align_de
 from fatools.lib.fautil.pmalign import align_pm
 
-from sortedcontainers import SortedListWithKey
 
 from scipy import signal, ndimage
 from scipy.optimize import curve_fit
@@ -21,6 +20,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from peakutils import indexes
+from matplotlib import pyplot as plt
+from sortedcontainers import SortedListWithKey
+
 
 import attr
 
@@ -48,9 +50,11 @@ class Peak(object):
             self.rtime, self.rfu, self.area, self.ertime - self.brtime, self.srtime,
             self.beta, self.theta, self.omega)
 
+
 def scan_peaks(channel, parameters, offset=0):
     """
     """
+    cerr('I: scanning peaks for: %s' % channel)
 
     params = parameters.ladder if channel.is_ladder() else parameters.nonladder
 
@@ -58,6 +62,14 @@ def scan_peaks(channel, parameters, offset=0):
     expected_peak_number = params.expected_peak_number
     if channel.is_ladder():
         expected_peak_number = len(channel.fsa.panel.get_ladder()['sizes'])
+    else:
+        # otherwise, calculate min_rtime for offset
+        if len(channel.fsa.ztranspose) <= 0:
+            raise RuntimeError('ztranspose has not been calculated!')
+        min_size = channel.marker.min_size
+        f = np.poly1d( channel.fsa.ztranspose )
+        offset = int(round(f(min_size)))
+        channel.offset = offset
 
     initial_peaks = find_peaks(channel, params, offset, expected_peak_number)
 
@@ -188,7 +200,7 @@ def preannotate_peaks(channel, params):
                         key = lambda x: x.rtime )
 
         for idx in range( len(alleles) ):
-            allele = alleles[idx]            
+            allele = alleles[idx]
             if idx > 0:
                 allele_0 = alleles[idx-1]
                 if allele.rtime - allele_0.rtime < params.stutter_rtime_threshold:
@@ -209,7 +221,7 @@ def call_peaks( channel, params, func, min_rtime, max_rtime ):
     peak-called or peak-unassigned
     """
 
-    
+
     for allele in channel.get_alleles(broad_peaks_only=False):
 
         if not min_rtime < allele.rtime < max_rtime:
@@ -242,10 +254,31 @@ def align_peaks(channel, params, ladder, anchor_pairs=None):
     returns (score, rss, dp, aligned_peak_number)
     """
 
-    alleles = channel.get_alleles()
+    alleles = channel.get_alleles(False)
 
     if (len(alleles) != len(ladder['sizes'])):
         raise LadderMismatchException( ("alleles not same length as ladder for file: %s!") % channel.fsa.filename)
+
+    # reset all peaks first
+    for p in alleles:
+        p.size = -1
+        p.type = const.peaktype.scanned
+
+    #anchor_pairs = pairs
+
+    alignresult = align_ladder( alleles, ladder, anchor_pairs)
+
+    f = np.poly1d( alignresult.dpresult.z )
+    for (size, allele) in alignresult.dpresult.sized_peaks:
+        allele.dev = abs( f(allele.rtime) - size)
+        allele.size = size
+        allele.type = const.peaktype.ladder
+
+    return alignresult
+
+
+
+def align_ladder( alleles, ladder, anchor_pairs):
 
     if anchor_pairs:
         return align_pm( alleles, ladder, anchor_pairs)
@@ -257,6 +290,8 @@ def align_peaks(channel, params, ladder, anchor_pairs=None):
             return result
 
     return align_pm( alleles, ladder )
+
+    # end of function,
 
     if result.initial_pairs:
         result = align_gm( alleles, ladder, result.initial_pairs )
@@ -291,7 +326,7 @@ def normalize_peaks(channel, params):
 
     #scale_factor = channel.fsa.area_scale_factor
     sf_poly1d = np.poly1d(channel.fsa.area_scale_factor_params)
-    
+
     for allele in channel.get_alleles(False):
         #allele.area_bp_corr = allele.area_bp * scale_factor
         allele.area_bp_corr = allele.area_bp * sf_poly1d(allele.size)
@@ -315,21 +350,20 @@ def merge_peaks( channel, params, func, plot=False ):
     def poly(x, xbar, *p0):
         val = p0[0]+(x-xbar)*p0[1]+(x-xbar)*(x-xbar)*p0[2]
         return val
-    
+
     def gauspoly(x, xbar, *p0):
         return gaus(x,*p0[0:-3]) + poly(x,xbar,*p0[-3:])
 
     broad_alleles = channel.get_alleles(True)[:]
-    all_alleles = channel.get_alleles()[:]
     basepairs = channel.get_basepairs()
 
     nmergedpeaks = 0
-    
+
     while len(broad_alleles)>0:
 
         # find tallest peak
         peak = max(broad_alleles, key=lambda p: p.rfu)
-        
+
         if peak.rfu<params.min_rfu or peak.size<-999:
             break
 
@@ -396,12 +430,12 @@ def merge_peaks( channel, params, func, plot=False ):
             fitbounds[0].extend([0,mean-.5,.2])
             fitbounds[1].extend([height+2.*np.sqrt(height), mean+.5, .6])
 
-        # x and y arrays for defining background and total functions 
+        # x and y arrays for defining background and total functions
         x = ar(basepairs[left:right+1])
         npoints = int(200 * (basepairs[right]-basepairs[left])/5)
         xfine = np.linspace(basepairs[left],basepairs[right],npoints)
         y = ar(channel.data[left:right+1])
-        
+
         # background and total functions
         xbar = basepairs[peak.rtime]
         f_poly = lambda x, *p: poly(x,xbar,*p[-3:])
@@ -411,11 +445,11 @@ def merge_peaks( channel, params, func, plot=False ):
         p0.extend([0,0,0])
         fitbounds[0].extend([0, -np.inf, -np.inf])
         fitbounds[1].extend([np.inf, np.inf, np.inf])
-        
+
         try:
             popt, pcov = curve_fit(f, x, y, p0=p0, bounds=fitbounds)
             p0 = popt.tolist()
-            
+
         except RuntimeError:
             #print("runtime error")
             perr = [ 100. ]
@@ -431,7 +465,7 @@ def merge_peaks( channel, params, func, plot=False ):
             good_gauss = p0[3*i+2]>.1
             if not good_gauss:
                 continue
-            
+
             # see if any other peaks are too close
             peakrtime_i = p0[3*i+1]
             for j in range(i-1, -1, -1):
@@ -452,15 +486,15 @@ def merge_peaks( channel, params, func, plot=False ):
 
         p0 = new_p0
         fitbounds = new_bounds
-        
+
         # fit again if number parameters changed
         ngaus_new = int(int(len(p0)-3)/3)
-            
-        if  ngaus_new<ngaus:                    
+
+        if  ngaus_new<ngaus:
             try:
                 popt, pcov = curve_fit(f, x, y, p0=p0, bounds=fitbounds)
                 p0 = popt.tolist()
-                
+
             except RuntimeError:
                 #print("runtime error")
                 perr = [ 100. ]
@@ -478,7 +512,7 @@ def merge_peaks( channel, params, func, plot=False ):
         # append individual peaks based on gaussians
         means = [ p0[3*i+1] for i in range(ngaus_new) ]
         sorted_means = sorted(means)
-        
+
         for i in range(ngaus_new):
 
             height = p0[3*i]
@@ -515,7 +549,7 @@ def merge_peaks( channel, params, func, plot=False ):
 
             l_area = integrate.quad(gaus, begin_bp, mean, args=tuple(p0))[0]
             r_area = integrate.quad(gaus, mean, end_bp, args=tuple(p0))[0]
-            
+
             srtime = 0
             if r_area>0 and l_area>0:
                 srtime = math.log2(r_area / l_area)
@@ -543,9 +577,9 @@ def merge_peaks( channel, params, func, plot=False ):
             allele.end_bp = end_bp
             allele.width_bp = end_bp - begin_bp
 
-            delta = (basepairs[right]-basepairs[left])/float(right-left)            
+            delta = (basepairs[right]-basepairs[left])/float(right-left)
             allele.area_bp = float(allele.area) * delta
-            
+
             smeared_peaks.append(allele)
 
             if plot:
@@ -556,8 +590,8 @@ def merge_peaks( channel, params, func, plot=False ):
         if plot:
             #plt.show()
             figname = "fit_"+channel.fsa.filename[:-4]+"_"+str(left)+"_"+str(right)+".png"
-            fig.savefig(figname)
-    
+            plt.savefig(figname)
+
         nmergedpeaks += 1
 
     return smeared_peaks
@@ -581,7 +615,7 @@ def find_smeared_peak_bound( peak, channel, peak_centers, peak_heights, move_to_
     while basepairs[rtime+step]>-999:
         max_val = 0.
         min_val = 1.e5
-        rtime_max_val = 0                   
+        rtime_max_val = 0
         last_rtime = rtime
         while abs(basepairs[rtime] - basepairs[peak.rtime]) < (1.+total_width) and basepairs[rtime+step]>-999:
 
@@ -592,13 +626,13 @@ def find_smeared_peak_bound( peak, channel, peak_centers, peak_heights, move_to_
                 rtime_max_val = rtime
             if val < min_val:
                 min_val = val
-                
+
             # move one scan-time unit
             rtime += step
 
         if last_rtime == rtime:
             break
-        
+
         if max_val>0.:
             peak_centers.append(basepairs[rtime_max_val])
             peak_heights.append(max_val)
@@ -606,17 +640,26 @@ def find_smeared_peak_bound( peak, channel, peak_centers, peak_heights, move_to_
         # check max over range... if below threshold then stop
         if (max_val-min_val)<0.05*channel.data[peak.rtime]:
             break
-        
+
         total_width += 1.
 
     return rtime
 
-    
+
+def call_peaks(channel, params, func, min_rtime, max_rtime):
+
+    for allele in channel.alleles:
+        if not min_rtime < allele.rtime < max_rtime: continue
+        allele.size, allele.dev, allele.qcall, method = func(allele.rtime)
+        if allele.type == const.peaktype.scanned:
+            allele.type = const.peaktype.called
+
+
 # helper functions
 
 
 def find_raw_peaks(channel, params, offset, expected_peak_number=0):
-    
+
     """
     params.min_dist
     params.norm_thres
@@ -624,9 +667,10 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
     params.min_rfu_ratio
     params.max_peak_number
     """
+    #print("expected:", expected_peak_number)
 
     data = channel.data
-    
+
     #print("expected:", expected_peak_number)
     # cut and pad data to overcome peaks at the end of array
     obs_data = np.append(data[offset:], [0,0,0])
@@ -641,11 +685,11 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
     elif False:
         indices = indexes( obs_data, params.norm_thres, params.min_dist)
 
-    
+
     if params.peakwindow==0 or params.peakdegree<1:
         indices = indexes( obs_data, 1e-7, params.min_dist)
         channel.firstderiv = np.hstack([np.diff(obs_data),0.]).tolist()
-        
+
     else:
 
         # do a fit in a sliding window of size given by peakwindow
@@ -673,7 +717,7 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
                     indices.append(i-1)
             last_data = data[i]
             last = current
-            
+
         """import matplotlib.pyplot as plt
         plt.plot(data, label="data")
         plt.plot(channel.firstderiv, '-',label="first deriv")
@@ -703,14 +747,14 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
                    params.min_rtime < i < params.max_rtime) ]
 
     if not peaks: return peaks
-    
+
     # call measure_peaks here to adjust the rfu by the baseline
     measure_peaks(peaks, channel, params.baseline_correct, offset)
 
     # check the thresholds again
     max_rfu = max([peak.rfu for peak in peaks])
     peaks = [ peak for peak in peaks if pass_threshold(peak.rfu,params,max_rfu) ]
-    
+
     # filter peaks by maximum peak number after sorted by rfu
     #peaks = sorted( peaks, key = lambda x: x.rfu )[:params.max_peak_number * 2]
     #import pprint; pprint.pprint(peaks)
@@ -728,8 +772,6 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
 
 def find_peaks(channel, params, offset=0, expected_peak_number=0):
 
-    data = channel.data
-    
     peaks = find_raw_peaks(channel, params, offset, expected_peak_number)
 
     # check for any peaks
@@ -759,7 +801,7 @@ def measure_peaks(peaks, channel, baseline_correct = True, offset=0):
 
     data = channel.data
     firstderiv = channel.firstderiv
-    
+
     (q50, q70) = np.percentile( data[offset:], [50, 75] )
     for p in peaks:
         if False:
@@ -774,13 +816,13 @@ def measure_peaks(peaks, channel, baseline_correct = True, offset=0):
         p.wrtime = p.ertime - p.brtime
 
         p.rfu_uncorr = p.rfu
-        if baseline_correct:            
+        if baseline_correct:
             p.area -= baseline * p.wrtime
             p.rfu -= baseline
             p.rfu = max(p.rfu, 0.)
 
         if p.rfu==0.: continue
-        
+
         p.beta = p.area / p.rfu
         if p.wrtime == 0:
             p.theta = 0
@@ -842,7 +884,7 @@ def calculate_area_firstderiv(y, dy, t):
         brtime: begin rtime
         ertime: end rtime
     """
-    
+
     # right area
     data = y[t:]
     firstderiv = dy[t:]
@@ -851,13 +893,13 @@ def calculate_area_firstderiv(y, dy, t):
     # left area
     data = y[:t+1][::-1]
     firstderiv = dy[:t+1][::-1]
-    
+
     l_area, brtime, l_shared = half_area_firstderiv(data, firstderiv, False)
 
     log2areas = 0
     if r_area>0 and l_area>0:
         log2areas = math.log2(r_area / l_area)
-        
+
     return ( l_area + r_area - y[t], t - brtime, ertime + t, log2areas,
              l_shared, r_shared )
 
@@ -875,10 +917,10 @@ def half_area_firstderiv(y, firstderiv, decreasing):
     index = 1
 
     if index<limit:
-        pos = ( firstderiv[index] < 0. ) if decreasing else ( firstderiv[index] > 0. ) 
+        pos = ( firstderiv[index] < 0. ) if decreasing else ( firstderiv[index] > 0. )
     else:
         pos = False
-        
+
     while ( pos and index < limit-1 ):
         area += y[index]
         index += 1
@@ -887,7 +929,7 @@ def half_area_firstderiv(y, firstderiv, decreasing):
 
     if area<0:
         area=0
-        
+
     return area, index, shared
 
 
@@ -955,7 +997,7 @@ def filter_for_artifact(peaks, params, expected_peak_number = 0):
             # generate a quadratic ratio series first
             popt, pcov = curve_fit( quadratic_math_func,
                     [rtimes[0], (rtimes[0] + rtimes[-1])/2, rtimes[-1]],
-                    [0.1, 0.3, 0.1])
+                    [0.05, 0.25, 0.05])
             ratios = quadratic_math_func(rtimes, *popt)
             if is_verbosity(4):
                 plt.plot(rtimes, ratios)
@@ -981,7 +1023,7 @@ def filter_for_artifact(peaks, params, expected_peak_number = 0):
 
         else:
 
-            q_omega = lambda x: x.omega >= min(omega_peaks[-1].omega, 125)
+            q_omega = lambda x: x.omega >= min(omega_peaks[-1].omega, 50)
 
 
         min_rfu = rfu_peaks[-1].rfu * 0.125
@@ -997,7 +1039,8 @@ def filter_for_artifact(peaks, params, expected_peak_number = 0):
     # filter for too sharp/thin peaks
     filtered_peaks = []
     for p in peaks:
-        #filtered_peaks.append(p); continue\
+        #filtered_peaks.append(p); continue
+        cverr(5, str(p))
 
         if len(filtered_peaks) < 2 and p.area > 50:
             # first two real peaks might be a bit lower
@@ -1005,7 +1048,7 @@ def filter_for_artifact(peaks, params, expected_peak_number = 0):
             continue
 
         if not q_omega(p):
-            print('! q_omega')
+            cverr(5, '! q_omega')
             continue
         #if not q_theta(p):
         #    print('! q_theta')
@@ -1018,13 +1061,13 @@ def filter_for_artifact(peaks, params, expected_peak_number = 0):
         #    print('! theta_omega')
         #    continue
         if p.theta < 1.0 and p.area < 25 and p.omega < 5:
-            print('! extreme theta & area & omega')
+            cverr(5, '! extreme theta & area & omega')
             continue
         if p.rfu < min_rfu:
-            print('! extreme min_rfu')
+            cverr(5, '! extreme min_rfu')
             continue
         if p.beta > 25 and p.theta < 0.5:
-            print('! extreme beta')
+            cverr(5, '! extreme beta')
             continue
         if p.wrtime < 3:
             continue
@@ -1055,7 +1098,7 @@ def filter_for_artifact(peaks, params, expected_peak_number = 0):
             if ( p.brtime - prev_p.ertime < params.artifact_dist
                     and p.rfu < params.artifact_ratio * prev_p.rfu ):
                 # we are artifact, just skip
-                print("artifact: ",p)
+                print('artifact1:', p)
                 continue
 
         if idx < len(peaks)-1:
@@ -1063,7 +1106,7 @@ def filter_for_artifact(peaks, params, expected_peak_number = 0):
             if ( next_p.brtime - p.ertime < params.artifact_dist
                     and p.rfu < params.artifact_ratio * next_p.rfu ):
                 # we are artifact, just skip
-                print("artifact: ",p)
+                print('artefact2:', p)
                 continue
 
         non_artifact_peaks.append( p )
@@ -1122,7 +1165,7 @@ def normalize_baseline( raw, params, is_ladder):
     else:
         savgol_size = params.nonladder.smoothing_window
         savgol_order = params.nonladder.smoothing_order
-        
+
     if params.baselinemethod == const.baselinemethod.median:
         baseline_raw = signal.medfilt(raw, [medwinsize])
 
@@ -1157,12 +1200,12 @@ def normalize_baseline( raw, params, is_ladder):
     plt.plot(signal.savgol_filter(corrected_baseline, 7, 1), color='violet')
     plt.show()
     """
-    
+
     if savgol_size>-1 and savgol_order>-1:
         corrected_baseline = signal.savgol_filter(corrected_baseline, savgol_size, savgol_order)
 
     #smooth = ndimage.white_tophat(savgol, None,
-    #                np.repeat([1], int(round(raw.size * tophat_factor))))    
+    #                np.repeat([1], int(round(raw.size * tophat_factor))))
 
     return NormalizedTrace( signal=corrected_baseline, baseline = baseline )
 
@@ -1185,7 +1228,7 @@ def ladder_area_means(ladders, fsa_list):
 
         for i in range(len(ladders)):
 
-            alleles = ladder.get_alleles()
+            alleles = ladder.get_alleles(False)
             min_index = min(range(len(alleles)),
                             key = lambda j: abs(ladders[i] - alleles[j].size))
             areas[i].append(alleles[min_index].area_bp)
@@ -1194,14 +1237,14 @@ def ladder_area_means(ladders, fsa_list):
             # iterate through alleles and find the closest one            
             best_area = -1
             best_val = 99999
-            for allele in ladder.get_alleles():
+            for allele in ladder.get_alleles(False):
                 val = abs(allele.size - ladders[i])
                 if val < best_val:
                     best_val = val
                     best_area = allele.area_bp
             areas[i].append(best_area)
             """
-            
+
     means = []
     for arr in areas:
         mu, sigma = norm.fit(arr)
@@ -1218,7 +1261,7 @@ def ladder_area_means(ladders, fsa_list):
 def set_scale_factor(ladder, ladder_area_means):
 
     ladder_sizes = ladder.fsa.panel.get_ladder()['sizes']
-    alleles = ladder.get_alleles()
+    alleles = ladder.get_alleles(False)
 
     # calculate scale factor for each fsa
     sum_area_mean = 0.
@@ -1231,8 +1274,8 @@ def set_scale_factor(ladder, ladder_area_means):
         # get ladder step closest to this allele
         min_index = min(range(len(ladder_sizes)),
                         key = lambda i: abs(ladder_sizes[i] - allele.size))
-        
-        sum_area_mean  += allele.area_bp * ladder_area_means[min_index] 
+
+        sum_area_mean  += allele.area_bp * ladder_area_means[min_index]
         sum_area2 += allele.area_bp * allele.area_bp
 
         size_bp.append(allele.size)
@@ -1256,6 +1299,10 @@ def b(txt):
     """ return a binary string aka bytes """
     return txt.encode('UTF-8')
 
+
+from fatools.lib.fautil.traceio import WAVELENGTH
+
+
 def get_well_id( trace ):
 
     well_id = '00'
@@ -1266,6 +1313,7 @@ def get_well_id( trace ):
     except KeyError:
         pass
 
+
     return well_id
 
 def separate_channels( trace, params):
@@ -1275,7 +1323,17 @@ def separate_channels( trace, params):
     for (idx, data_idx) in [ (1,1), (2,2), (3,3), (4,4), (5,105) ]:
         try:
             dye_name = trace.get_data(b('DyeN%d' % idx)).decode('UTF-8')
-            dye_wavelength = trace.get_data(b('DyeW%d' % idx))
+
+            # below is to workaround on some strange dye names
+            if dye_name == '6FAM': dye_name = '6-FAM'
+            elif dye_name == 'PAT': dye_name = 'PET'
+            elif dye_name == 'Bn Joda': dye_name = 'LIZ'
+
+            try:
+                dye_wavelength = trace.get_data(b('DyeW%d' % idx))
+            except KeyError:
+                dye_wavelength = WAVELENGTH[dye_name]
+
             raw_channel = np.array( trace.get_data(b('DATA%d' % data_idx)) )
             is_ladder = (idx==5)
             nt = normalize_baseline( raw_channel, params, is_ladder )
@@ -1351,7 +1409,7 @@ def least_square( ladder_alleles, z ):
         if p.qscore>=99:
             print("missing qscore for allele: ", p,"!")
             exit(6)
-            
+
     f = np.poly1d(z)
 
     def _f( rtime ):
@@ -1373,7 +1431,7 @@ def least_square( ladder_alleles, z ):
             left_ladder = ladder_allele_sorted[left_idx]
             left_deviation = (left_ladder.size - f(left_ladder.rtime))**2
             left_qscore = left_ladder.qscore
-            
+
         if right_idx >= len(ladder_alleles):
             # do linear extrapolation based on last 3 points
             z2 = np.polyfit(x[-3:], y[-3:], 1)
@@ -1384,7 +1442,7 @@ def least_square( ladder_alleles, z ):
             right_ladder = ladder_allele_sorted[right_idx]
             right_deviation = (right_ladder.size - f(right_ladder.rtime))**2
             right_qscore = right_ladder.qscore
-            
+
         #cerr(' ==> rtime: %d/%4.2f  [ %d/%4.2f | %d/%4.2f ]' % ( rtime, size,
         #            left_ladder.rtime, left_ladder.size,
         #            right_ladder.rtime, right_ladder.size))
@@ -1426,7 +1484,7 @@ def cubic_spline( ladder_alleles ):
             left_ladder = ladder_allele_sorted[left_idx]
             left_deviation = (left_ladder.size - f(left_ladder.rtime))**2
             left_qscore = left_ladder.qscore
-            
+
         if right_idx >= len(ladder_alleles):
             # do linear extrapolation based on last 3 points
             z2 = np.polyfit(ladder_peaks[-3:], ladder_sizes[-3:], 1)
@@ -1475,7 +1533,7 @@ def local_southern( ladder_alleles ):
             size = c/(rtime - M0) + L0
 
         return size
-    
+
     def _f( rtime ):
         """ return (size, deviation)
             deviation is calculated as delta square between curve1 and curve2
@@ -1485,20 +1543,20 @@ def local_southern( ladder_alleles ):
 
         # special case for points to left or right of ladder steps
         if (idx==0):
-            if (x[0] - rtime) <= 100:                
+            if (x[0] - rtime) <= 100:
                 z = np.polyfit( x[0:4], y[0:4], 2)
                 min_score = .5 * min( z.qscore for z in ladder_allele_sorted[0:3] )
                 return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
             else:
                 return ( -9999, 0, 0, const.allelemethod.localsouthern)
         if (idx==len(x)):
-            if (rtime - x[-1]) <= 100:                
+            if (rtime - x[-1]) <= 100:
                 z = np.polyfit( x[-4:], y[-4:], 2)
                 min_score = .5 * min( z.qscore for z in ladder_allele_sorted[-3:] )
                 return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
             else:
                 return ( -9999, 0, 0, const.allelemethod.localsouthern)
-            
+
         # left curve
         if (idx>1 and idx<len(x)):
             size1 = southern3(x[idx-2:idx+1], y[idx-2:idx+1], rtime)
@@ -1528,12 +1586,12 @@ def mark_overlap_peaks(channels, params):
         for channel_r in channels:
             if channel == channel_r:
                 continue
-            
+
             for p in channel.get_alleles(broad_peaks_only=False):
 
                 if p.type == const.peaktype.noise:
                     continue
-                
+
                 if p.ertime - p.brtime < 3:
                     brtime = p.brtime
                     ertime = p.ertime
@@ -1614,7 +1672,7 @@ def calc_overlap_ratio(data, data_r, rtime, brtime, ertime):
     log2vals = 0
     if lrc/rrc > 0:
         log2vals = math.log2(rrc/lrc)
-        
+
     return (True, (lrc + rrc)/2, log2vals)
 
 ## this is a new algorithm and steps to perform peak analysis
@@ -1640,4 +1698,3 @@ def calc_overlap_ratio(data, data_r, rtime, brtime, ertime):
 ##  fsa.preannotate_peaks(params.nonladder, marker=None)
 ##  fsa.call_peaks(params.nonladder, marker=None)
 ##  fsa.bin_peaks(params.nonladder, marker=None)
-

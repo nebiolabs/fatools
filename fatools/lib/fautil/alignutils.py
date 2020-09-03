@@ -9,6 +9,7 @@ import math
 import warnings
 warnings.simplefilter('ignore', np.RankWarning)
 
+
 @attr.s
 class AlignResult(object):
     score = attr.ib()
@@ -17,12 +18,25 @@ class AlignResult(object):
     method = attr.ib()
     initial_pairs = attr.ib(default=None)
 
+
 @attr.s
 class DPResult(object):
     dpscore = attr.ib()
     rss = attr.ib()
     z = attr.ib()
     sized_peaks = attr.ib()
+
+    @property
+    def ztranspose(self):
+        if self.sized_peaks:
+            sizes = []
+            rtimes = []
+            for size, allele in self.sized_peaks:
+                sizes.append(size)
+                rtimes.append(allele.rtime)
+            zres = estimate_z(sizes, rtimes, len(self.z) - 1)
+            return zres.z
+        return []
 
 
 @attr.s
@@ -52,7 +66,7 @@ def estimate_z( x, y, degree = 3 ):
         y ~ f(x) where f = poly1d(z)
         rss ~ SUM( (f(x) - y)**2 ) for all (x,y)
     """
-    z = np.polyfit( x, y, degree)
+    z = np.polyfit( x, y, degree )
     p = np.poly1d( z )
     y_p = p(x)
     rss = ( (y_p - y) ** 2 ).sum()
@@ -77,6 +91,9 @@ def generate_similarity( peaks ):
         print(highest_rfu)
         print(similarity)
 
+
+    for (p, score) in zip(peaks, similarity):
+        p.qscore = score
     return similarity
 
 
@@ -230,7 +247,7 @@ def align_dp( rtimes, sizes, similarity, z, rss, order = 3):
 
         S = generate_scores( sizes, rtimes, similarity, np.poly1d(z))
 
-        result = dp(S, -5e-3)
+        result = dp(S, -5) #-5e-3)
 
         cur_dpscore = result['D'][-1][-1]
         matches = result['matches']

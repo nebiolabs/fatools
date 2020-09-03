@@ -10,7 +10,16 @@ import time
 
 # FA
 
+
 class AlleleMixIn(object):
+
+    __slots__ = [   'rtime', 'rfu', 'rfu_uncorr',
+                    'area', 'brtime', 'ertime', 'wrtime', 'srtime',
+                    'beta', 'theta', 'omega',
+                    'size', 'bin', 'dev', 'type', 'method', 'marker',
+                    'qscore', 'qcall', 'group',
+                    'begin_bp', 'end_bp', 'width_bp', 'area_bp', 'area_bp_corr'
+                ]
 
     def __repr__(self):
         return "<A: %7s | %3d | %4d | %5d | %2d | %+3.1f | %4.1f | %5.1f | %6d | %4.2f >" % (
@@ -25,10 +34,13 @@ class AlleleMixIn(object):
     @property
     def height_uncorr(self):
         return self.rfu_uncorr
-        
+
     def __lt__(self, other):
         return self.rtime < other.rtime
 
+
+class AlleleSetMixIn(object):
+    pass
 
 class ChannelMixIn(object):
     """
@@ -36,14 +48,14 @@ class ChannelMixIn(object):
     """
 
     __slots__ = [   'data', 'dye', 'wavelen', 'alleles', 'fsa', 'status', 'marker',
-                    'mma', 'mmb', 'p80', 'basepairs', 'smeared_alleles'
+                    'mma', 'mmb', 'p80', 'basepairs', 'smeared_alleles', 'offset'
                 ]
 
-    
+
     def __init__(self):
         self.basepairs = []
         self.smeared_alleles = []
-        
+
     def add_allele(self, allele):
         """ add this allele to channel """
         raise NotImplementedError()
@@ -61,7 +73,7 @@ class ChannelMixIn(object):
             self.marker = marker
 
 
-    def get_alleles(self, broad_peaks_only=True):       
+    def get_alleles(self, broad_peaks_only=True):
         if self.status == const.channelstatus.reseted:
             # create alleles first
             raise RuntimeError('E: channel needs to be scanned first')
@@ -72,10 +84,9 @@ class ChannelMixIn(object):
 
     # ChannelMixIn scan method
     def scan(self, parameters):
-
         if self.status != const.channelstatus.reseted:
             return
-        
+
         alleles = algo.scan_peaks(self, parameters)
 
 
@@ -87,11 +98,15 @@ class ChannelMixIn(object):
         algo.preannotate_peaks(self, params)
 
     # ChannelMixIn align method
-    def align(self, parameters, ladder=None, anchor_pairs=None):
+    def align(self, parameters, anchor_pairs=None):
 
         # sanity checks
         if self.marker.code != 'ladder':
             raise RuntimeError('E: align() must be performed on ladder channel!')
+
+        if parameters:
+            self.scan( parameters )         # in case this channel hasn't been scanned
+            self.preannotate(parameters)
 
         ladder = self.fsa.panel.get_ladder()
 
@@ -109,9 +124,11 @@ class ChannelMixIn(object):
         fsa.nladder = len(dpresult.sized_peaks)
         fsa.score = result.score
         fsa.duration = time.process_time() - start_time
+        fsa.status = const.assaystatus.aligned
+        fsa.ztranspose = dpresult.ztranspose
 
         # set allele sizes from ladder steps
-        alleles = self.get_alleles()
+        alleles = [x[1] for x in dpresult.sized_peaks]
         alleles.sort(key = lambda x: x.rtime)
 
         ladder_sizes = ladder['sizes']
@@ -131,12 +148,12 @@ class ChannelMixIn(object):
             fsa.allele_fit_func = algo.local_southern( alleles )
         else:
             raise RuntimeError
-        
+
         #min_rtime = ladders[1].rtime
         #max_rtime = ladders[-2].rtime
         fsa.min_rtime = parameters.ladder.min_rtime
         fsa.max_rtime = parameters.ladder.max_rtime
-    
+
         #import pprint; pprint.pprint(dpresult.sized_peaks)
         #print(fsa.z)
         if is_verbosity(4):
@@ -153,13 +170,13 @@ class ChannelMixIn(object):
         # skip if ladder
         if self.marker.code == 'ladder':
             pass
-        
+
         algo.call_peaks(self, params, self.fsa.allele_fit_func,
                         self.fsa.min_rtime, self.fsa.max_rtime)
-            
+
         #algo.bin_peaks(self, params, self.marker)
         #algo.postannotate_peaks(self, params)
-        
+
         #import pprint; pprint.pprint(alleles)
 
 
@@ -172,7 +189,7 @@ class ChannelMixIn(object):
         params = parameters.nonladder
 
         #print("calling algo.merge_peaks for ",self.dye)
-        
+
         self.smeared_alleles = algo.merge_peaks(self, params, self.fsa.allele_fit_func, plot)
 
 
@@ -188,7 +205,7 @@ class ChannelMixIn(object):
 
         if not self.fsa.allele_fit_func:
             return []
-        
+
         if not self.basepairs:
             #min=0
             #max=0
@@ -209,25 +226,25 @@ class ChannelMixIn(object):
         plt.show()
         """
         return self.basepairs
-    
+
 class FSAMixIn(object):
     """
     attrs: channels
     """
 
     __slots__ = [   'panel', 'channels', 'excluded_markers', 'filename',
-                    'date', 'rss', 'z', 'score', 'nladder', 'duration', 'status',
+                    'date', 'rss', 'z', 'score', 'nladder', 'duration', 'status', 'ztranspose',
                     'allele_fit_func', 'area_scale_factor_params', 'area_scale_factor',
                     'min_rtime', 'max_rtime', 'scan_done', 'align_done', 'call_done'
                 ]
 
     def __init__(self):
-        self.area_scale_factor_params = [] # array of parameters for polynomial fit of scale factors vs. ladder sie
-        self.area_scale_factor = -1 # single scale factor for all ladders
+        self.area_scale_factor_params = []  # array of parameters for polynomial fit of scale factors vs. ladder sie
+        self.area_scale_factor = -1  # single scale factor for all ladders
         self.scan_done = False
         self.call_done = False
         self.allele_fit_func = None
-        
+
     def get_data_stream(self):
         """ return stream of data """
         raise NotImplementedError()
@@ -245,7 +262,7 @@ class FSAMixIn(object):
             from fatools.lib.fautil import traceio
             self._trace = traceio.read_abif_stream( self.get_data_stream() )
             self.close_file()
-            
+
         return self._trace
 
 
@@ -274,6 +291,8 @@ class FSAMixIn(object):
                         fsa=self)
             self.add_channel(channel)
             #channel.status = const.channelstatus.reseted
+        self.status = const.assaystatus.normalized
+
 
     # FSAMixIn scan method
     def scan(self, parameters):
@@ -291,34 +310,48 @@ class FSAMixIn(object):
 
     # FSAMixIn align method
     def align(self, parameters=None):
+        """ return (score, rss, nladder)
+        """
 
-        self.scan(parameters)
+        # check if this FSA has not been aligned previously
+        if self.status != const.assaystatus.normalized:
+            return (self.score, self.rss, self.nladder)
 
         ladder = self.get_ladder_channel()
-        ladder.align(parameters)
+        ladder.align( parameters )
+
+        return (self.score, self.rss, self.nladder)
 
     # FSAMixIn call method
     def call(self, parameters):
 
-        if self.call_done: return
-        
+        if self.call_done:
+            return
+
         ladder = self.get_ladder_channel()
 
+        # sanity check to ensure FSA has been aligned with size ladders
+        if ladder.status != const.channelstatus.aligned:
+            self.align( parameters )
+
         self.scan(parameters)
-        
+
         for c in self.channels:
             c.call(parameters, ladder)
 
         self.call_done = True
+        self.status = const.assaystatus.called
+
 
     # FSAMixIn merge method
     def merge(self, parameters, plot=False):
 
         ladder = self.get_ladder_channel()
-        
+
         for c in self.channels:
             #print("calling merge for channel: ", c.dye)
             c.merge(parameters, ladder, plot)
+
 
     # FSAMixIn call method
     def normalize(self, parameters, ladder_means):
@@ -327,9 +360,10 @@ class FSAMixIn(object):
 
         # get scale factor for this FSA using ladder channel
         algo.set_scale_factor(self.get_ladder_channel(), ladder_means)
-        
+
         for c in self.channels:
             c.normalize(parameters)
+
 
     def get_ladder_channel(self):
 
@@ -344,6 +378,10 @@ class MarkerMixIn(object):
     """
     attrs: id, code, species, min_size, max_size, repeats, z_params
     """
+
+    __slots__ = [   'id', 'code', 'species',
+                    'repeats', 'min_size', 'max_size',
+                ]
 
     def update(self, obj):
 
@@ -401,6 +439,10 @@ class PanelMixIn(object):
     attrs: id, code, data, dyes, Marker
     """
 
+    __slots__ = [   'id', 'code', 'data', 'dyes',
+                    '_dyes', 'ladder_area_means'
+                ]
+
     def __init__(self):
         self.ladder_area_means = []
 
@@ -454,6 +496,9 @@ class PanelMixIn(object):
         return panel
 
 
+class BinMixIn(object):
+    pass
+
 # Sample
 
 
@@ -462,4 +507,39 @@ class SampleMixIn(object):
 
 
 class BatchMixIn(object):
+    pass
+
+
+# Auxiliary mixin, probably should be in separate file when fully implemented
+
+class NoteMixIn(object):
+
+    pass
+
+class BatchNoteMixIn(object):
+
+    pass
+
+class SampleNoteMixIn(object):
+
+    pass
+
+class MarkerNoteMixIn(object):
+
+    pass
+
+class PanelNoteMixIn(object):
+
+    pass
+
+class FSANoteMixIn(object):
+
+    pass
+
+class ChannelNoteMixIn(object):
+
+    pass
+
+class AlleleSetNoteMixIn(object):
+
     pass

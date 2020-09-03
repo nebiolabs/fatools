@@ -42,8 +42,8 @@ class ScanningParameter(object):
         self.peakwindow = 5
         self.norm_thres = 0.05
         self.min_dist = 10
-        self.min_rfu = 20 
-        self.min_rfu_ratio = 0 
+        self.min_rfu = 20
+        self.min_rfu_ratio = 0
         self.artifact_dist = 20
 
         self.min_theta = 0
@@ -55,7 +55,7 @@ class ScanningParameter(object):
 
         self.smoothing_window = -1
         self.smoothing_order = -1
-        
+
 class LadderScanningParameter(ScanningParameter):
 
     def __init__(self):
@@ -81,8 +81,8 @@ class LadderScanningParameter(ScanningParameter):
         self.peakdegree = 3
         self.peakwindow = 15
         self.norm_thres = 0.1
-        self.min_rfu = 3 
-        self.min_rfu_ratio = 0.25 
+        self.min_rfu = 3
+        self.min_rfu_ratio = 0.25
         self.min_dist = 12
 
         self.min_theta = 4
@@ -107,7 +107,14 @@ class Params(object):
     baselinewindow = 399
 
 default_panels = {
-    
+    'undefined': {
+        'code': 'undefined',
+        'data': {
+            'ladder': '',
+            'markers': {},
+        }
+    },
+
     'GS600LIZ': {
         'code': 'GS600LIZ',
         'data': {
@@ -150,13 +157,17 @@ default_panels = {
 
 default_markers = {
 
-    'x/ladder': dict( code='ladder', species='x' ),
+    'x/undefined': dict( code='undefined', species='x'),
 
-    'x/VIC': dict( code='VIC', species='x' ),
+    'x/combined': dict( code='combined', species='x'),
 
-    'x/PET': dict( code='PET', species='x' ),
+    'x/ladder': dict( code='ladder', species='x', min_size=-1, max_size=-1 ),
 
-    'x/NED': dict( code='NED', species='x' ),
+    'x/VIC': dict( code='VIC', species='x', min_size=80, max_size=500 ),
 
-    'x/6-FAM': dict( code='6-FAM', species='x' ),
+    'x/PET': dict( code='PET', species='x', min_size=80, max_size=500 ),
+
+    'x/NED': dict( code='NED', species='x', min_size=80, max_size=500 ),
+
+    'x/6-FAM': dict( code='6-FAM', species='x', min_size=80, max_size=500 ),
 }
