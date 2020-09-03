@@ -641,11 +641,10 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
     elif False:
         indices = indexes( obs_data, params.norm_thres, params.min_dist)
 
-    
     if params.peakwindow==0 or params.peakdegree<1:
         indices = indexes( obs_data, 1e-7, params.min_dist)
         channel.firstderiv = np.hstack([np.diff(obs_data),0.]).tolist()
-        
+
     else:
 
         # do a fit in a sliding window of size given by peakwindow
@@ -673,7 +672,8 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
                     indices.append(i-1)
             last_data = data[i]
             last = current
-            
+        indices = np.array(indices)
+
         """import matplotlib.pyplot as plt
         plt.plot(data, label="data")
         plt.plot(channel.firstderiv, '-',label="first deriv")
@@ -689,7 +689,7 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
 
     # normalize indices
     if offset > 0:
-        indices += offset
+        indices = indices + offset
 
     # filter peaks by minimum rfu and minimum rfu ratio
 
