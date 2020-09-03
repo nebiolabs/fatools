@@ -717,6 +717,7 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
                     indices.append(i-1)
             last_data = data[i]
             last = current
+        indices = np.array(indices)
 
         """import matplotlib.pyplot as plt
         plt.plot(data, label="data")
@@ -733,7 +734,7 @@ def find_raw_peaks(channel, params, offset, expected_peak_number=0):
 
     # normalize indices
     if offset > 0:
-        indices += offset
+        indices = indices + offset
 
     # filter peaks by minimum rfu and minimum rfu ratio
 
