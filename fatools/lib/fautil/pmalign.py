@@ -305,6 +305,8 @@ def align_upper_pm(peaks, ladder, anchor_pairs, anchor_z):
     z = estimate_z(anchor_rtimes, anchor_bpsizes, order).z
     f = ZFunc(peaks, current_sizes, anchor_pairs, estimate=True)
 
+    pairs, rss = f.get_pairs(z)
+
     while True:
 
         if not remaining_sizes:
