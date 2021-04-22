@@ -1526,7 +1526,7 @@ def mark_overlap_peaks(channels, params):
     # checking overlaps against channel !
     for channel in channels:
         for channel_r in channels:
-            if channel == channel_r:
+            if channel == channel_r or or channel.is_ladder():
                 continue
             
             for p in channel.get_alleles(broad_peaks_only=False):
