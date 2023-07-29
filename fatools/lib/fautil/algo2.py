@@ -24,6 +24,10 @@ from peakutils import indexes
 
 import attr
 
+import logging, os
+LOGLEVEL = os.environ.get("LOGLEVEL", "WARNING").upper()
+logging.basicConfig(level=LOGLEVEL)
+
 class LadderMismatchException(Exception):
     """Raised when number of peaks in ladder channel not equal to number of ladder steps."""
     pass
@@ -237,7 +241,7 @@ def call_peaks( channel, params, func, min_rtime, max_rtime ):
         if is_verbosity(4):
             print(allele)
 
-def align_peaks(channel, params, ladder, anchor_pairs=None):
+def align_peaks(channel, params, ladder, anchor_pairs=None, saturated_peak_rtimes=[]):
     """
     returns (score, rss, dp, aligned_peak_number)
     """
@@ -245,7 +249,11 @@ def align_peaks(channel, params, ladder, anchor_pairs=None):
     alleles = channel.get_alleles()
 
     if (len(alleles) != len(ladder['sizes'])):
-        raise LadderMismatchException( ("alleles not same length as ladder for file: %s!") % channel.fsa.filename)
+        # attempt to filter out cross talk peaks from saturated signal in other channels
+        logging.debug(f"observed rtimes:{[a.rtime for a in alleles]}, saturated_rtimes:{saturated_peak_rtimes}")
+        alleles = [ a for a in alleles if not any(np.isclose(a.rtime,s, atol= 2) for s in saturated_peak_rtimes)] 
+        if (len(alleles) != len(ladder['sizes'])):  
+            raise LadderMismatchException( ("alleles not same length as ladder for file: %s!") % channel.fsa.filename)
 
     if anchor_pairs:
         return align_pm( alleles, ladder, anchor_pairs)
