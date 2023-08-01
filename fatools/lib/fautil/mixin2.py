@@ -1,4 +1,5 @@
 
+import itertools
 from fatools.lib.fautil import algo2 as algo
 from fatools.lib.utils import cout, cerr, cexit, is_verbosity
 from fatools.lib import const
@@ -87,8 +88,7 @@ class ChannelMixIn(object):
         algo.preannotate_peaks(self, params)
 
     # ChannelMixIn align method
-    def align(self, parameters, ladder=None, anchor_pairs=None):
-
+    def align(self, parameters, ladder=None, anchor_pairs=None, saturated_peak_rtimes=[]):
         # sanity checks
         if self.marker.code != 'ladder':
             raise RuntimeError('E: align() must be performed on ladder channel!')
@@ -101,7 +101,7 @@ class ChannelMixIn(object):
                                             ladder['strict'], ladder['relax'] )
 
         start_time = time.process_time()
-        result = algo.align_peaks(self, parameters, ladder, anchor_pairs)
+        result = algo.align_peaks(self, parameters, ladder, anchor_pairs, saturated_peak_rtimes)
         dpresult = result.dpresult
         fsa = self.fsa
         fsa.z = dpresult.z
@@ -295,7 +295,7 @@ class FSAMixIn(object):
         self.scan(parameters)
 
         ladder = self.get_ladder_channel()
-        ladder.align(parameters)
+        ladder.align(parameters, None, None, self.get_saturated_rtimes())
 
     # FSAMixIn call method
     def call(self, parameters):
@@ -337,6 +337,13 @@ class FSAMixIn(object):
             if c.marker.code == 'ladder':
                 return c
         raise RuntimeError('E: ladder channel not found')
+    
+    def get_saturated_rtimes(self):
+        saturation_threshold = 29000
+        #makes a flat list of alleles from all channels
+        alleles = itertools.chain(*[c.get_alleles() for c in self.channels])
+        saturated_rtimes = [a.rtime for a in alleles if a.rfu >= saturation_threshold]
+        return saturated_rtimes
 
 
 
