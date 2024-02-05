@@ -62,7 +62,9 @@ class ChannelMixIn(object):
             self.marker = marker
 
 
-    def get_alleles(self, broad_peaks_only=True):       
+    def get_alleles(self, broad_peaks_only=True):
+        cerr('***** Entering ChannelMixin.get_alleles *****')
+
         if self.status == const.channelstatus.reseted:
             # create alleles first
             raise RuntimeError('E: channel needs to be scanned first')
@@ -73,6 +75,7 @@ class ChannelMixIn(object):
 
     # ChannelMixIn scan method
     def scan(self, parameters):
+        cerr('***** Entering ChannelMixin.scan *****')
 
         if self.status != const.channelstatus.reseted:
             return
@@ -81,6 +84,7 @@ class ChannelMixIn(object):
 
 
     def preannotate(self, parameters):
+        cerr('***** Entering ChannelMixin.preannotate *****')
 
         params = parameters.ladder if self.is_ladder() else parameters.nonladder
 
@@ -90,6 +94,8 @@ class ChannelMixIn(object):
     # ChannelMixIn align method
     def align(self, parameters, ladder=None, anchor_pairs=None, saturated_peak_rtimes=[]):
         # sanity checks
+        cerr('***** Entering ChannelMixin.align *****')
+
         if self.marker.code != 'ladder':
             raise RuntimeError('E: align() must be performed on ladder channel!')
 
@@ -277,6 +283,7 @@ class FSAMixIn(object):
 
     # FSAMixIn scan method
     def scan(self, parameters):
+        cerr('***** Entering FSAMixIn.scan *****')
 
         if self.scan_done: return
 
@@ -291,6 +298,7 @@ class FSAMixIn(object):
 
     # FSAMixIn align method
     def align(self, parameters=None):
+        cerr('***** Entering FSAMixIn.align *****')
 
         self.scan(parameters)
 
@@ -299,6 +307,7 @@ class FSAMixIn(object):
 
     # FSAMixIn call method
     def call(self, parameters):
+        cerr('***** Entering FSAMixIn.call *****')
 
         if self.call_done: return
         
@@ -335,6 +344,7 @@ class FSAMixIn(object):
 
         for c in self.channels:
             if c.marker.code == 'ladder':
+                cerr('***** get_ladder_channel: {} *****'.format(c))
                 return c
         raise RuntimeError('E: ladder channel not found')
     
@@ -442,6 +452,7 @@ class PanelMixIn(object):
 
 
     def get_ladder(self):
+        cerr('***** ladder: {} *****'.format(const.ladders[ self.data['ladder']]))
         return const.ladders[ self.data['ladder']]
 
 
