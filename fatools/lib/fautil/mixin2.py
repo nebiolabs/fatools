@@ -63,8 +63,6 @@ class ChannelMixIn(object):
 
 
     def get_alleles(self, broad_peaks_only=True):
-        cerr('***** Entering ChannelMixin.get_alleles *****')
-
         if self.status == const.channelstatus.reseted:
             # create alleles first
             raise RuntimeError('E: channel needs to be scanned first')
