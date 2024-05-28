@@ -11,7 +11,7 @@ with open(os.path.join(here, 'CHANGES.md')) as f:
 requires = [
     'numpy',
     'cython',
-    'scipy',
+    'scipy==1.7.2',
     'matplotlib',
     'pandas',
     'attrs',
