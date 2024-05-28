@@ -11,7 +11,7 @@ with open(os.path.join(here, 'CHANGES.md')) as f:
 requires = [
     'numpy',
     'cython',
-    'scipy',
+    'scipy==1.7.2',
     'matplotlib',
     'pandas',
     'attrs',
@@ -21,7 +21,7 @@ requires = [
     ]
 
 setup(name='fatools',
-      version='0.7',
+      version='0.10',
       description='fatools',
       long_description=README + '\n\n' + CHANGES,
       classifiers=[
