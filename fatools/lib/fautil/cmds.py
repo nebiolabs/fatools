@@ -140,7 +140,6 @@ def init_argparser(parser=None):
 
 
 def main(args):
-    cerr('***** Entering main in FATools *****')
 
     if args.verbose != 0:
         set_verbosity(args.verbose)
@@ -204,7 +203,6 @@ def main(args):
 
         
 def do_facmds(args, fsa_list, _params, dbh=None):
-    cerr('***** Entering do_facmds in FATools *****')
 
     if args.ladder_rfu_threshold >= 0:
         _params.ladder.min_rfu = args.ladder_rfu_threshold
@@ -288,16 +286,12 @@ def do_align( args, fsa_list, _params, f_bad_files, dbh ):
             fsa.align(_params)
             good_fsa.append( (fsa, fsa_index) )
         except LadderMismatchException:
-            cerr('***** LadderMismatchException: {} *****'.format(fsa))
-
             f_bad_files.write(("LadderMismatch: %s\n") % fsa.filename)
-
-    cerr('***** good_fsas: {} *****'.format(good_fsa))
+            
     return good_fsa
 
 
 def do_call( args, fsa_list, params, dbh ):
-    cerr('***** Entering do_call *****')
 
     cerr('I: Calling non-ladder peaks...')
 
@@ -325,7 +319,6 @@ def do_normalize( args, fsa_list, params ):
     panel = Panel.get_panel(args.panel)
     
     ladder_means = panel.get_ladder_area_means(fsa_list)
-    cerr('***** ladder_means: {} *****'.format(ladder_means))
 
     # normalize areas for each FSA
     for (fsa, fsa_index) in fsa_list:
@@ -648,8 +641,6 @@ def open_fsa( args, _params ):
             os.makedirs('.fatools_caches/channels')
 
     if args.file:
-        cerr('***** Reading args.file *****')
-
         for fsa_filename in args.file.split(','):
             fsa_filename = fsa_filename.strip()
 
@@ -664,7 +655,6 @@ def open_fsa( args, _params ):
             index += 1
 
     elif args.infile:
-        cerr('***** Reading args.infile *****')
 
         with open(args.infile) as f:
             buf, delim = detect_buffer( f.read() )
@@ -701,8 +691,6 @@ def open_fsa( args, _params ):
                 index += 1
 
     elif args.indir:
-        cerr('***** Reading args.indir *****')
-
         import glob
         for fsa_filename in sorted(glob.glob(args.indir+"/*.fsa")):
 
@@ -712,7 +700,6 @@ def open_fsa( args, _params ):
             fsa_list.append( (fsa, str(index)) )
             index += 1
 
-    cerr('***** fsa_list: {} *****'.format(fsa_list))
     return fsa_list
 
 
