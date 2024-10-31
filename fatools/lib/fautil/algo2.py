@@ -1493,19 +1493,14 @@ def local_southern( ladder_alleles ):
 
         # special case for points to left or right of ladder steps
         if (idx==0):
-            if (x[0] - rtime) <= 100:                
-                z = np.polyfit( x[0:4], y[0:4], 2)
-                min_score = .5 * min( z.qscore for z in ladder_allele_sorted[0:3] )
-                return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
-            else:
-                return ( -9999, 0, 0, const.allelemethod.localsouthern)
+            z = np.polyfit( x[0:4], y[0:4], 2)
+            min_score = .5 * min( z.qscore for z in ladder_allele_sorted[0:3] )
+            return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
+
         if (idx==len(x)):
-            if (rtime - x[-1]) <= 100:                
-                z = np.polyfit( x[-4:], y[-4:], 2)
-                min_score = .5 * min( z.qscore for z in ladder_allele_sorted[-3:] )
-                return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
-            else:
-                return ( -9999, 0, 0, const.allelemethod.localsouthern)
+            z = np.polyfit( x[-4:], y[-4:], 2)
+            min_score = .5 * min( z.qscore for z in ladder_allele_sorted[-3:] )
+            return ( np.poly1d(z)(rtime), 0, min_score, const.allelemethod.localsouthern)
             
         # left curve
         if (idx>1 and idx<len(x)):
