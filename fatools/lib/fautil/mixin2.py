@@ -184,7 +184,7 @@ class ChannelMixIn(object):
         algo.normalize_peaks(self, params)
 
 
-    def get_basepairs(self):
+    def get_basepairs(self, is_ladder = False):
 
         if not self.fsa.allele_fit_func:
             return []
@@ -193,7 +193,7 @@ class ChannelMixIn(object):
             #min=0
             #max=0
             for st in range(len(self.data)):
-                basepair = self.fsa.allele_fit_func(st)[0]
+                basepair = self.fsa.allele_fit_func(st, is_ladder)[0]
                 # get max/min for plotting
                 #if basepair>-999 and min==0:
                 #    min=st

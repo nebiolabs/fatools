@@ -587,13 +587,11 @@ def do_listrawdata( args, fsa_list, dbh ):
             else:
                 trace_dye = markers['x/'+channel.dye]['filter']
 
-            # get raw data
-            data = channel.data
             datastring = "["
-
             data = channel.data
-            basepairs = channel.get_basepairs()
-            #channel.set_basepairs(fsa.allele_fit_func)
+            is_ladder = channel.is_ladder()
+            basepairs = channel.get_basepairs(is_ladder)
+
             for i in range(len(data)):
                 rfu = data[i] 
                 bp  = basepairs[i] if basepairs else -999
