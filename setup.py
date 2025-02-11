@@ -21,7 +21,7 @@ requires = [
     ]
 
 setup(name='fatools',
-      version='0.12',
+      version='0.13',
       description='fatools',
       long_description=README + '\n\n' + CHANGES,
       classifiers=[
