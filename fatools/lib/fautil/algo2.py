@@ -66,39 +66,40 @@ def scan_peaks(channel, parameters, offset=0):
     initial_peaks = find_peaks(channel, params, offset, expected_peak_number)
 
     # For LIZ120 ladder only! This will need to be modified for other dyes.
-    if len(initial_peaks) > 9:
-        # Find the largest gap between 2 peaks
-        max_gap = 0
-        extra_peak_idx = 0
-
-        # Compare consecutive peaks
-        for i in range(1, len(initial_peaks)):
-            delta = initial_peaks[i].rtime - initial_peaks[i - 1].rtime
-
-            if delta > max_gap:
-                max_gap = delta
-                extra_peak_idx = i  # Potential extra peak index
-
-        # If gap was between peak indices 0 and 1 it implies it was first peak
-        if extra_peak_idx == 1:
+    if channel.is_ladder():
+        if len(initial_peaks) > 9:
+            # Find the largest gap between 2 peaks
+            max_gap = 0
             extra_peak_idx = 0
 
-        # Find peaks with min/max RFU
-        min_rfu = float('inf')
-        max_rfu = float('-inf')
-        min_idx = max_idx = 0
+            # Compare consecutive peaks
+            for i in range(1, len(initial_peaks)):
+                delta = initial_peaks[i].rtime - initial_peaks[i - 1].rtime
 
-        for idx, peak in enumerate(initial_peaks):
-            if peak.rfu > max_rfu:
-                max_rfu = peak.rfu
-                max_idx = idx
-            if peak.rfu < min_rfu:
-                min_rfu = peak.rfu
-                min_idx = idx
+                if delta > max_gap:
+                    max_gap = delta
+                    extra_peak_idx = i  # Potential extra peak index
 
-        # Remove extra peak if it's both min/max RFU and largest gap
-        if extra_peak_idx in (max_idx, min_idx):
-            del initial_peaks[extra_peak_idx]
+            # If gap was between peak indices 0 and 1 it implies it was first peak
+            if extra_peak_idx == 1:
+                extra_peak_idx = 0
+
+            # Find peaks with min/max RFU
+            min_rfu = float('inf')
+            max_rfu = float('-inf')
+            min_idx = max_idx = 0
+
+            for idx, peak in enumerate(initial_peaks):
+                if peak.rfu > max_rfu:
+                    max_rfu = peak.rfu
+                    max_idx = idx
+                if peak.rfu < min_rfu:
+                    min_rfu = peak.rfu
+                    min_idx = idx
+
+            # Remove extra peak if it's both min/max RFU and largest gap
+            if extra_peak_idx in (max_idx, min_idx):
+                del initial_peaks[extra_peak_idx]
 
     # create alleles based on these peaks
     alleles = []
