@@ -6,6 +6,7 @@ from fatools.lib.fautil.algo2 import LadderMismatchException
 
 import sys, argparse, csv, os
 from io import StringIO
+import math
 
 def init_argparser(parser=None):
 
@@ -529,37 +530,41 @@ def do_listpeaks( args, fsa_list, dbh ):
             if (not args.merge) or channel.is_ladder():
                 for p in alleles:
                     if args.peaks_format=='standard':
-                        out_stream.write('%6s\t%10s\t%3s\t%d\t%d\t%5i\t%3.2f\t%3.2f\n' %
-                                         (fsa_index,
-                                          fsa.filename[:-4],
-                                          color,
-                                          p.rtime,
-                                          p.size,
-                                          p.height,
-                                          p.area,
-                                          p.qscore)
-                                         )
+                        # Create a safe tuple with NaN-safe values for standard format
+                        safe_values = (
+                            fsa_index,
+                            fsa.filename[:-4],
+                            color,
+                            safe_format_value(p.rtime, 0),
+                            safe_format_value(p.size, 0),
+                            safe_format_value(p.height, 0),
+                            safe_format_value(p.area, 0.0),
+                            safe_format_value(p.qscore, 0.0)
+                        )
+                        out_stream.write('%6s\t%10s\t%3s\t%d\t%d\t%5i\t%3.2f\t%3.2f\n' % safe_values)
                     else:
-                        out_stream.write('"%s, %i", %s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f, %f,,, %s\n' %
-                                         (color,
-                                          i,
-                                          fsa.filename,
-                                          p.type,
-                                          p.size,
-                                          p.height,
-                                          p.area,
-                                          p.area_bp,
-                                          p.area_bp_corr,
-                                          p.rtime,
-                                          p.brtime,
-                                          p.begin_bp,
-                                          p.ertime,
-                                          p.end_bp,
-                                          p.wrtime,
-                                          p.width_bp,
-                                          p.qscore,
-                                          serial_number)
-                                         )
+                        # Create a safe tuple with NaN-safe values
+                        safe_values = (
+                            color,
+                            i,
+                            fsa.filename,
+                            p.type,
+                            safe_format_value(p.size),
+                            safe_format_value(p.height, 0),
+                            safe_format_value(p.area, 0),
+                            safe_format_value(p.area_bp, 0),
+                            safe_format_value(p.area_bp_corr, 0),
+                            safe_format_value(p.rtime, 0),
+                            safe_format_value(p.brtime, 0),
+                            safe_format_value(p.begin_bp),
+                            safe_format_value(p.ertime, 0),
+                            safe_format_value(p.end_bp),
+                            safe_format_value(p.wrtime, 0),
+                            safe_format_value(p.width_bp),
+                            safe_format_value(p.qscore),
+                            serial_number
+                        )
+                        out_stream.write('"%s, %i", %s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f, %f,,, %s\n' % safe_values)
                     i = i+1
 
 
@@ -570,8 +575,28 @@ def do_listpeaks( args, fsa_list, dbh ):
                     cout("channel has smeared alleles :",len(smeared_alleles))
                 i=1
                 for p in smeared_alleles:
-                    out_stream.write('"%s, %i", %s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f, %f, %i,,\n' %
-                                     (color, i, fsa.filename, p.type, p.size, p.height, p.area, p.area_bp, p.area_bp_corr, p.rtime, p.brtime,p.begin_bp,p.ertime,p.end_bp,p.wrtime,p.width_bp,p.qscore, p.group))
+                    # Create a safe tuple with NaN-safe values for smeared alleles
+                    safe_values = (
+                        color, 
+                        i, 
+                        fsa.filename, 
+                        p.type, 
+                        safe_format_value(p.size), 
+                        safe_format_value(p.height, 0), 
+                        safe_format_value(p.area, 0), 
+                        safe_format_value(p.area_bp, 0), 
+                        safe_format_value(p.area_bp_corr, 0), 
+                        safe_format_value(p.rtime, 0), 
+                        safe_format_value(p.brtime, 0),
+                        safe_format_value(p.begin_bp),
+                        safe_format_value(p.ertime, 0),
+                        safe_format_value(p.end_bp),
+                        safe_format_value(p.wrtime, 0),
+                        safe_format_value(p.width_bp),
+                        safe_format_value(p.qscore), 
+                        p.group
+                    )
+                    out_stream.write('"%s, %i", %s, %s, %f, %i, %i, %i, %i, %i, %i, %f, %i, %f, %i, %f, %f, %i,,\n' % safe_values)
                     i = i+1
                 
 
@@ -771,3 +796,22 @@ def get_fsa_list( args, dbh ):
 
     cerr('I: number of assays to be processed: %d' % len(assay_list))
     return fsa_list
+
+def safe_format_value(value, default_value=0):
+    """
+    Safely format a value, replacing NaN with a default value.
+    
+    Args:
+        value: The value to format (may be NaN)
+        default_value: Value to use if input is NaN (default: 0)
+    
+    Returns:
+        The original value if not NaN, otherwise the default value
+    """
+    try:
+        if math.isnan(value):
+            return default_value
+        return value
+    except (TypeError, ValueError):
+        # Handle cases where value is not a number
+        return value if value is not None else default_value
