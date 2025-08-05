@@ -1,6 +1,6 @@
 package:
   name: fatools
-  version: "0.12"
+  version: "0.15"
 
 source:
   git_rev: v0.12
