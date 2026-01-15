@@ -172,7 +172,7 @@ def align_clusters( peak_clusters, ladder_clusters, anchor=None ):
     expected_missing = 0
     last_i = -1
     for i in range(len(ladder_clusters)):
-        if len(peak_clusters) < i:
+        if len(peak_clusters) <= i:
             expected_missing += len( ladder_clusters[i] )
             break
         c_peak = peak_clusters[i]
