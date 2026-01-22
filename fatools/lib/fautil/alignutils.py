@@ -65,7 +65,15 @@ def generate_similarity( peaks ):
     rfus = [ p.rfu for p in peaks ]
 
     # use the 2nd highest peaks since the 1st or 2nd may be noises
-    highest_rfu = list(sorted(rfus, reverse=True))[2]
+    # but handle cases where we have fewer than 3 peaks
+    sorted_rfus = list(sorted(rfus, reverse=True))
+    if len(sorted_rfus) >= 3:
+        highest_rfu = sorted_rfus[2]
+    elif len(sorted_rfus) > 0:
+        highest_rfu = sorted_rfus[0]
+    else:
+        # No peaks at all - return empty list
+        return []
 
     N = len(rfus)
     similarity = list( [ (np.log10( rfu/ highest_rfu ) + N) / N if rfu < highest_rfu
