@@ -48,3 +48,7 @@ docs/_build/
 # vim
 .*.swp
 
+
+# Claude Code per-user local files (approved commands can embed credentials)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
